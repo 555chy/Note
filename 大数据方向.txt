@@ -1,0 +1,74 @@
+
+
+数据仓库架构
+（1）immon是建立一个大而全的数据仓库，然后在上层做各个业务的集市。
+（2）kimball是先做单个业务线集市，再合并到一起。
+当业务线复杂，独立性比较强时，可以从kimball做起，一个一个做，否则直接上immon很可能造成迟迟出不了成果而导致团队失控奔溃；
+在稳定的公司业务线不复杂可以考虑做immon，这样数据库容易遵守范式，数据冗余低，效率高，便于数据分析挖掘
+
+分布式文件存储系统
+（1）Hadoop HDFS
+
+数据库系统
+（1）Mongodb
+（2）HBase
+
+分布式计算框架
+（1）批处理：Hadoop MapReduce
+（2）流处理：Storm
+（3）混合处理框架：Spark，Flink
+
+查询分析框架
+（1）Hive
+（2）Spark SQL
+（3）Flink SQL
+（4）Pig
+（5）Phonenix
+
+集群资源管理器
+Hadoop YARN
+
+分布式协调服务
+Zookeeper
+
+
+数据迁移工具（ETL，是英文 Extract-Transform-Load 的缩写，用来描述将数据从来源端经过抽取（extract）、交互转换（transform）、加载（load）至目的端的过程）
+DataX DataX 是一个异构数据源离线同步工具，致力于实现包括关系型数据库(MySQL、Oracle等)、HDFS、Hive、ODPS、HBase、FTP等各种异构数据源之间稳定高效的数据同步功能
+Sqoop 是一款开源的工具，主要用于在HADOOP(Hive)与传统的数据库(mysql、postgresql...)间进行数据的传递，可以将一个关系型数据库(例如 : MySQL ,Oracle ,Postgres等)中的数据导进到Hadoop的HDFS中，也可以将HDFS的数据导进到关系型数据库中。
+Kettle 是一款国外开源的ETL工具，纯java编写，可以在Window、Linux、Unix上运行，数据抽取高效稳定。Kettle的Spoon有丰富的Steps可以组装开发出满足多种复杂应用场景的数据集成作业，方便实现全量、增量数据同步。缺点是通过定时运行，实时性相对较差。
+
+
+任务调度框架
+Azkaban
+Oozie
+
+集群部署和监控
+Ambari
+Cloudera Manager
+
+分布式发布/订阅消息平台
+（1）Pulsar作为新型的云原生分布式消息流平台， 有很多优秀的设计理念。在Yahoo内部支持应用服务平台中 140 万个topic，日处理消息超过 1000 亿条。腾讯的分布式交易引擎 TDXA也使用了Pulsar，应用于腾讯的计费平台。
+（2）kafka目前的使用场景最多的还是日志大数据处理，对金融场景的应用比较少。
+
+
+搜索引擎框架
+（1）haystack 用户越来越依赖于搜索从噪声信息中分离和快速找到有用信息。haystack是django的开源搜索框架，该框架支持 Solr,Elasticsearch,Whoosh, Xapian 搜索引擎，不用更改代码，直接切换引擎，减少代码量。
+
+
+（1）Elasticsearch 是一个分布式的 RESTful 风格的搜索和数据分析引擎，被用作全文检索、结构化搜索、分析以及这三个功能的组合
+
+
+日志搜集
+（1）Flume是一个分布式、可靠、高可用的海量日志聚合系统，支持在系统中定制各类数据发送方，用于收集数据；同时，Flume提供对数据的简单处理，并写到各种数据接收方的能力。
+（2）Kibana 是一个为 Logstash 和 ElasticSearch 提供的日志分析的 Web 接口。可使用它对日志进行高效的搜索、可视化、分析等各种操作
+（3）Logstash 是一个应用程序日志、事件的传输、处理、管理和搜索的平台。你可以用它来统一对应用程序日志进行收集管理，提供 Web 接口用于
+
+
+
+终端工具
+（1）secureCRT、Putty、telnet，XShell等等
+（2）MobaXterm 向Windows桌面提供所有重要的远程网络工具（SSH，X11，RDP，VNC，FTP，MOSH等）和Unix命令（bash，ls，cat，sed，grep，awk，rsync等），是一款多合一的连接工具。
+
+
+
+

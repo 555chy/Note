@@ -1,0 +1,1694 @@
+安装
+sudo yum install -y yum-utils
+sudo yum-config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo
+sudo yum install -y clickhouse-server clickhouse-client
+
+
+本地连接
+sudo /etc/init.d/clickhouse-server start 或 systemctl start clickhouse-server
+clickhouse-client 或 clickhouse-client --password
+远程连接
+/etc/clickhouse-server/config.d/<名字随意>.xml（不用重启，保存后立即生效）
+<clickhouse>
+  <listen_host>::</listen_host>
+</clickhouse>
+注意：该方法只能配置在config.xml或config.d里。即使变换形式，配置在users.xml或users.d里，也是无效的
+
+
+如果启动失败，查看错误日志：/var/log/clickhouse-server/clickhouse-server.err.log
+
+
+clickhouse是大小写敏感的
+Memory表引擎不支持索引，不支持MODIFY COLUMN
+
+
+导入CSV
+1.首先创建表结构（clickhouse的列字段是大小写敏感的）
+2.导入csv
+clickhouse-client --format_csv_delimiter="," --query="INSERT INTO test.csv FORMAT CSV" < data.csv
+clickhouse-client --query="INSERT INTO test.left_join_table FORMAT CSV" < test.csv_1kw
+clickhouse-client --query="INSERT INTO test.goods FORMAT CSV" < test.csv_1g
+test.csv  是<数据库名>.<表名>
+data.csv  是CSV的文件名，只要格式对，后缀都随意
+查询导入耗时及速度
+SELECT event_time, tables, query_duration_ms,query, written_rows, concat(toString(round(written_bytes/query_duration_ms*1000/1024/1024,2)),'MB/s') AS speed 
+	FROM system.query_log 
+	WHERE written_rows > 0 AND query_duration_ms > 0 AND type = 'QueryFinish' AND query LIKE '%CSV%' AND has(tables, 'test.goods')
+	ORDER BY written_rows 
+
+
+
+打印每个表的总行数及压缩率
+SELECT 
+    database AS `数据库`,
+    table AS `表名`,
+    sum(rows) AS `总行数`,
+    formatReadableSize(sum(data_uncompressed_bytes)) AS `原始大小`,
+    formatReadableSize(sum(data_compressed_bytes)) 	 AS `压缩大小`,
+    round((sum(data_compressed_bytes) / sum(data_uncompressed_bytes)) * 100, 0) AS `压缩率`,
+    formatReadableSize(sum(bytes_on_disk)) AS `磁盘占用`
+FROM system.parts
+WHERE database != 'system'
+GROUP BY database, table
+ORDER BY database,table
+
+
+打印每列的压缩率及磁盘占用
+SELECT
+    database AS `数据库`,
+    table AS `表名`,
+    column AS `字段名`,
+    any(type) AS `类型`,
+    formatReadableSize(sum(column_data_uncompressed_bytes)) AS `原始大小`,
+    formatReadableSize(sum(column_data_compressed_bytes)) AS `压缩大小`,
+    round((sum(column_data_compressed_bytes) / sum(column_data_uncompressed_bytes)) * 100, 0) AS `压缩率`,
+    formatReadableSize(sum(column_bytes_on_disk)) AS `磁盘占用`,
+    sum(rows) AS `行数`
+FROM system.parts_columns
+WHERE database != 'system'
+GROUP BY database, table, column
+ORDER BY database, table, column
+
+
+ReplacingMergeTree 数据的去重只会在数据合并期间进行，合并会在后台一个不确定的时间进行，因此你无法预先作出计划，有一些数据可能仍未被处理。
+尽管你可以调用optimize语句发起计划外的合并，但请不要依靠它，因为optimize语句会引发对数据的大量读写
+通过实际监控表大小发现：optimize后会生成一组新的数据，导致data_uncompressed_bytes，data_compressed_bytes等都会比先前的高，要optimize结束后，再过一段时间才会降下来
+(1)修改后强制整理数据，删除重复
+OPTIMIZE TABLE <表名> FINAL
+OPTIMIZE用来合并分区，FINAL指示即使在同一个分区内也进行合并
+(2)SELECT ... FROM <表名> FINAL WHERE ...
+
+
+将异步的mutations（update和delete）改为同步
+https://www.cnblogs.com/MrYang-11-GetKnow/p/15975818.html
+alter table tb_test update name = 'bob' where uid = '123456' settings mutations_sync = 1
+注意：mutations_sync只能设置在alter语句中，insert不支持该设置
+
+
+
+
+explain pipeline多线程合并（实际max_final_threads=Min(max_final_threads,CPU核心数)）
+https://blog.csdn.net/weixin_42528534/article/details/113580666
+1.从 v20.5.2.7-stable 版本开始，FINAL 查询执行并行执行了
+2.目前读取 part 部分的动作依然是串行的
+3.总的来说，目前的 FINAL 相比之前还是有了一些性能的提升
+例如：EXPLAIN PIPELINE SELECT * FROM test.person1 FINAL WHERE age < 5 LIMIT 100 settings max_final_threads = 8;
+explain                                     |
+--------------------------------------------+
+(Expression)                                |
+ExpressionTransform × 4                     |
+  (Limit)                                   |
+  Limit 4 → 4                               |
+    (Filter)                                |
+    FilterTransform × 4                     |
+      (SettingQuotaAndLimits)               |
+        (ReadFromMergeTree)                 |
+        ExpressionTransform × 4             |
+          ReplacingSorted × 4 7 → 1         |
+            Copy × 7 1 → 4                  |
+              AddingSelector × 7            |
+                ExpressionTransform × 7     |
+                  MergeTreeInOrder × 7 0 → 1|
+
+
+使用的端口
+http_port               8123 (http, jdbc)
+tcp_port                9000 (tcp, clickhouse-client, clickhouse-server distributed)
+mysql_port              9004
+postgresql              9005
+interserver_http_port   9009
+
+
+函数
+https://blog.csdn.net/u012111465/article/details/85250030
+
+
+查看CPU信息
+1、查看 CPU 物理个数
+　　grep 'physical id' /proc/cpuinfo | sort -u | wc -l
+2、查看 CPU 核心数量
+　　grep 'core id' /proc/cpuinfo | sort -u | wc -l
+3、查看 CPU 线程数
+　　grep 'processor' /proc/cpuinfo | sort -u | wc -l
+4、查看 CPU  型号
+　　dmidecode -s processor-version
+5、查看 CPU 的详细信息：
+　　cat /proc/cpuinfo
+
+
+clickhouse的特性
+1.不支持事务，不支持真正的删除/更新。不擅长根据主键按行粒度的查询、不擅长按行删除数据。目前市场上的其他同类高性能 OLAP 数据库同样也不擅长这些方面
+2.不支持高并发，官方建议qps为100，可以通过修改配置文件增加连接数，但是在服务器足够好的情况下
+3.分析类查询，通常只需要读取表的一小部分列。如果只需要读取100列中的5列，列式数据库将帮年减少20倍的I/O消耗
+4.尽量做1000条以上批量的写入，避免逐行insert或小批量的insert，update，delete操作，因为Clickhouse底层会不断的做异步的数据合并，会影响查询性能，这个在做实时数据写入时候要尽量避开
+5.Clickhouse快是因为采用了并行处理机制，即使一个查询，也会用服务器一半的CPU去执行，所以Clickhouse不能支持高并发的使用场景，默认单查询使用CPU核数为服务器核数的一半，安装时会自动识别服务器核数，可以通过配置文件修改参数
+6.尽量减少JOIN时的左右表的数据量（clickhouse join的性能比较差），必要时可以提前对某张表进行聚合操作，减少数据条数。有些时候，先GROUP BY再JOIN比先JOIN再GROUP BY查询时间更短。
+7.JOIN操作时一定要把数据量小的表放在右边，ClickHouse与常规数据库不同，无论是Left Join 、Right Join还是Inner Join永远都是拿着右表中的每一条记录到左表中查找该记录是否存在，所以右表必须是小表
+8.少部分SQL语法是非标准的。默认情况下，以Left Join为例，如果左表中的一条记录在右表中不存在，右表的相应字段会返回该字段相应数据类型的默认值，而不是标准SQL中的Null值。
+9.ClickHouse适合流式或批次入库的时序数据。ClickHouse不应该被用作通用数据库，而是作为超高性能的海量数据快速查询的分布式实时处理平台，在数据汇总查询方面(如GROUP BY)，ClickHouse的查询速度非常快。
+10.通过ClickHouse官方的JDBC向ClickHouse中批量写入数据时，必须控制每个批次的数据中涉及到的分区的数量，在写入之前最好通过Order By语句对需要导入的数据进行排序。无序的数据或者数据中涉及的分区太多，会导致ClickHouse无法及时的对新导入的数据进行合并，从而影响查询性能。
+11.避免使用分布式表，ClickHouse的分布式表性能上性价比不如物理表高，建表分区字段值不宜过多，太多的分区数据导入过程磁盘可能会被打满。
+12.服务器CPU一般在50%左右会出现查询波动，CPU达到70%会出现大范围的查询超时，所以ClickHouse最关键的指标CPU要非常关注。
+
+不同的数据存储方式适用不同的业务场景，数据访问的场景包括：
+1.进行了何种查询，多久查询一次以及各类查询的比例
+2.每种类型的查询（行、列和字节）读取多少数据
+3.读取数据和更新之间的关系
+4.使用的数据集大小以及如何使用本地数据集
+5.是否使用事务以及它们是如何进行隔离的
+6.数据的复制机制与数据完整性要求
+7.每种类型的查询要求的延迟与吞吐量等等
+
+系统负载越高，依据使用场景进行定制化就越重要，并且定制将会变得越精细。
+没有一个系统能够同时适用不同的业务场景
+
+
+数据类型
+1.没有Boolean，但可以用 UInt8 的 0 或 1 代替
+2.支持正无穷(inf)，负无穷(-inf)以及非数字(nan)
+3.Decimal(P,S)
+ P代表精度，决定总位数(整数部分+小数部分)，取值范围是1～38
+ S代表规模，决定小数位数，取值范围是0～P
+ 四则运算后，精度的变化
+ 加 S=max(S1,S2)
+ 减 S=max(S1,S2)
+ 乘 S=S1+S2
+ 除 S=S1(S1为被除数，S1/S2)
+4.String代替了传统数据库的Varchar、Text、Clob、Blob等字符类型
+  FixedString使用\0填充，如果使用WHERE语句必须手动填充\0
+  与MySQL的char不同，MySQL中使用空格填充字符串，并在输出时删除空格
+5.UUID有32位，格式为'8-4-4-4-12'。如果写入时没有被赋值，会依照格式使用0填充
+6.时间类型分为DateTime，DateTime64(精度)，Date，支持以字符串型式写入。DateTime64可以记录亚秒。CH目前没有时间戳类型。
+ 时间类型最高的精度是秒。如果需要处理毫秒，微秒等大于秒分辨率的时间，则只能借助UInt实现
+7.CH还提供了数组，元组，枚举和嵌套四类复合类型。
+8.Nullable是一种辅助的修饰符，需要搭配基础类型一起使用。不能用于数组和元组这些复合类型，也不能作为索引字段。
+ 应该慎用Nullable类型，包括Nullable数据表。因为正常情况下，每个列字段的数据会被存储在对应的[Column].bin文件中，如果一个列字段被Nullable类型修饰后，会额外生成一个[Column].null.bin文件专门保存它的Null值。这意味着读取和写入数据，需要一倍的额外文件操作。
+9.域名类型分为IPv4(基于UInt32的封装)和IPv6(基于FixedString(16)的封装)。如果需要返回IP的字符串形式，则需要显式调用IPv4NumToString或 IPv6NumToString函数进行转换。
+
+
+ClickHouse 数据类型与JDBC标准类型的对应关系
+ClickHouse数据类型   JDBC标准数据类型
+Int8                TINYINT
+Int16               SMALLINT
+Int32               INTEGER
+Int64               BIGINT
+Float32             FLOAT
+Float32             REAL
+Float64             DOUBLE
+DateTime            TIMESTAMP
+DateTime            TIME
+Date                DATE
+UInt8               BIT
+UInt8               BOOLEAN
+String              CHAR
+String              VARCHAR
+String              LONGVARCHAR
+
+
+安装与部署
+1.防火墙
+查看防火墙状态
+systemctl status firewalld.service
+关闭防火墙
+systemctl stop firewalld.service
+禁用开机启动项
+systemctl disable firewall.service
+2.判断CPU知否支持SSE4.2指令集，因为向量化执行需要使用到这项特性
+grep -q <key> <path> && <found segment> || <not found segment>
+grep -q sse4_2 /proc/cpuinfo && echo "SSE 4.2 supported" || echo "SSE 4.2 not supported"
+如果不支持SSE指令集，则不能直接使用先前下载的预编译安装包，需要通过源码编译特定的版本进行安装
+3.FQDN
+FQDN是完全合格域名/全程域名缩写，Fully Qualified Domain Name，即是域名，访问时将由DNS进行解析，得到IP
+FQDN = Hostname + DomainName
+`hostname -s` 获取主机名
+`hostname -f` 获取长主机名（FQDN）
+`hostname -d` 获取域名，等价于 `dnsdomainname`
+设置FQDN
+hostnamectl --static set-hostname www.test.com
+最后，配置houst文件
+vim /etc/hosts
+<ip> <完整域名> <主机名>
+4.修改数据的保存地址
+编辑/etc/clickhouse-server/config.xml文件，修改数据保存地址
+```
+<path>/var/lib/clickhouse</path>
+<tmp_path>/var/lib/clickhouse/tmp</path>
+<user_files_path>/var/lib/clickhouse/user_files</path>
+```
+查找全部path，可以用``，颜色的值可以取 ['always', 'never', 'auto']
+5.有两种启动方式
+（1）基于默认配置的启动，它会默认读取/etc/clickhouse-server/config.xml配置文件
+`service clickhouse-server start`
+（2）基于指定配置启动，在这种方式下需要手动切换到clickhouse用户启动
+```
+su clickhouse  #切换用户
+clickhouse-server --config-file=/etc/clickhouse-server/config-ch5.xml
+```
+6.bash登录管理
+禁止ssh远程登录 `usermode -s /sbin/nologin <用户名>`
+允许ssh远程登录 `usermode -s /bin/bash <用户名>`
+查看所有用户 `cat /etc/passwd`
+7.安装/升级rpm
+安装：`rpm -ivh ./*.rpm`
+升级：`rpm -Uvh ./*.rpm`
+
+
+客户端的访问接口
+Clickhouse的底层访问接口支持TCP和HTTP两种协议
+（1）TCP协议拥有更好的性能，其默认端口为9000，主要用于集群间的内部通信及CLI客户端
+（2）HTTP协议拥有更好的兼容性，可以通过REST服务的形式被广泛用于JAVA、Python等编程语言的客户端，其默认端口为8123
+通常而言，并不建议用户直接使用底层接口访问Clickhouse，更为推荐的方式是通过CLI和JDBC这些封装接口，因为它们更加简单易用
+1.CLI（Command Line Interface）
+CLI即命令行接口，其底层是基于TCP接口进行通信的，是通过clickhouse-client脚本运行的。它拥有两种执行模式
+（1）交互式执行
+交互式执行可以广泛用于调试、运维、开发和测试等场景，它的使用方法是直接运行clickhouse-client进行登录
+在登录之后，便可以使用SQL进行一问一答的交互式查询了
+通过交互式执行的SQL语句，相关查询结果会统一被记录到 `~/clickhouse-client-history`，该记录可以作为审计之用（从上到下，从新到旧）
+（2）非交互式执行
+非交互是模式主要用于批处理的场景，诸如对数据的导入和导出等操作。在执行脚本命令时，需要追加`--query`参数指定执行的SQL语句。
+在导入数据时，它可以接收操作系统的stdin标准输入作为写入的数据源。例如以文件作为数据源，cat命令读取的文件流，将会作为INSERT查询的数据输入
+`cat ~/test_fetch.tsv | clickhouse-client --query "INSERT INTO test_fetch FORMAT TSV"`
+而在数据导出时，则可以将输出重定向到文件
+`clickhouse-client --query="SELECT * FROM test_fetch" > ~/test_fetch.tsv`
+在默认情况下，clickhouse-client一次只能运行一条SQL语句。如果需要执行多条查询，则需要在循环中重复执行，这显然不是一种高效的方式。此时可以追加`--multiquery`参数，它可以支持一次运行多条SQL查询，多条查询语句之间使用分号间隔。例如
+`clickhouse-client -h 10.37.129.10 --multiquery --query="SELECT 1;SELECT 2;SELECT 3"`
+多条SQL的查询结果集会依次按顺序返回
+（3）重要参数
+`--host / -h` 服务端的地址，默认值为localhost。如果修改了config.xml内的listen_host，则需要使用此参数来指定
+`--port` 服务端的TCP端口，默认值为9000。如果修改了config.xml内的tcp_port，则需要使用此参数来指定
+`--user / u` 登录的用户名，默认值为default。如果使用非default的其他用户名登录，则需要使用此参数指定
+`--password` 登录密码，默认值为空。如果在用户定义中未设置密码，则不需要填写（例如默认的default用户）
+`--database / -d` 登录的数据库，默认值为default
+`--query / -q` 只能在非交互式查询时使用，用于指定SQL语句
+`--multiquery / -n` 在非交互式执行时，允许一次运行多条SQL语句，多条语句之间以分号间隔
+`--time / -t` 在非交互式执行时，会打印每条SQL的执行时间
+2.JDBC（Java DataBase Interface）
+Clickhouse支持标准的JDBC协议，底层基于HTTP接口通信。使用下面的Maven依赖，为java程序引入数据库驱动包
+<dependency>
+    <groupId>ru.yandex.clickhouse</groupId>
+    <artifactId>clickhouse-jdbc</artifactId>
+    <version>0.3.1</version>
+</dependency>
+该驱动有两种使用方式
+（1）标准形式
+标准形式是我们常用的方式，通过JDK原生接口获取连接，其关键参数如下
+JDBC Driver Class：ru.yandex.clickhouse.ClickHouseDriver
+JDBC URL：jdbc:clickhouse://<host>:<port>[/<database>]
+//初始化驱动
+Class.forName("ru.yandex.clickhouse.ClickHouseDriver");
+//url
+String url = "jdbc:clickhouse://ch5.nauu.com:8123/default";
+//用户名密码
+String user = "default", password = "";
+//登录
+Connection conn = DriverManager.getConnection(url, username, password);
+Statement stmt = conn.createStatement();
+//查询
+ResultSet rs = stmt.executeQuery("SELECT 1")
+rs.next();
+System.out.printf("res " + res.getInt(1))
+（2）高可用模式
+高可用模式允许设置多个host地址，每次会从可用的地址中随机选择一个进行连接
+jdbc:clickhouse://<first-host>:<port>,<second-host>:<port>[,...]/</database>
+在高可用模式下，需要通过BalancedClickhouseDataSource对象获取连接，接下来是一段伪代码
+//多个地址使用逗号分隔
+String url = "jdbc:clickhouse://ch8.nauu.com:8123,ch5.nauu.com:8123/default";
+//设置JDBC参数
+ClickHouseProperties clickHouseProperties = new ClickHouseProperties();
+clickhouseProperties.setUser("default");
+//声明数据源
+BalancedClickhouseDataSource balanced = new BalancedClickhouseDataSource(url, clickhouseProperties);
+//对每个host进行ping操作，排除不可用的dead连接
+balanced.actualize();
+//获得JDBC连接
+Connection conn = balanced.getConnection();
+Statement stmt = conn.createStatement();
+//查询
+ResultSet rs = stmt.executeQuery("SELECT 1, hostName()")
+rs.next();
+System.out.printf("res " + res.getInt(1) + "," + res.getString(2))
+
+内置工具
+1.clickhouse-local
+clickhouse-local可以独立运行大部分SQL查询，不需要依赖任何ClickHouse的服务端程序，它可以理解成是ClickHouse服务的单机版微内核，是一个轻量级的应用程序。clickhouse-local只能够使用File表引擎（关于表引擎的更多介绍在后续章节展开），它的数据与同机运行的ClickHouse服务也是完全隔离的，相互之间并不能访问。clickhouse-local是非交互式运行的，每次执行都需要指定数据来源，例如通过stdin标准输入，以echo打印作为数据来源
+echo -e "1\n2\n3" | clickhouse-local -q "CREATE TABLE test_table (id Int64) ENGINE = File(CSV, stdin); SELECT id FROM test_table"
+也可以借助操作系统的命令，实现对系统用户内存用量的查询
+ps aux | tail -n +2 | awk '{ printf("%s\t%s\n", $1, $4) }' | clickhouse-local -S "user String, memory Float64" -q "SELECT user, round(sum(memory), 2) as memoryTotal FROM table GROUP BY user ORDER BY memoryTotal DESC FORMAT Pretty"
+（1）`-S / --structure` 表结构的简写方式，例如以下两种声明的效果是相同的
+```
+-- 使用-S简写
+clickhouse-local -S "id Int64"
+-- 使用DDL
+clickhouse-local -q "CREATE TABLE test_table(id Int64) ENGINE = File(CSV, stdin)"
+```
+（2）`-N / --table` 表名称，默认值是table，例如
+`clickhouse-local -S "id Int64" -N "test_table" -q "SELECT id FROM test_table"`
+（3）`-if / --input-format` 输入数据的格式，默认值是TSV，例如
+`echo -e "1\n2\n3" | clickhouse-local -S "id Int64" -if "CSV" -N "test_table"`
+TSV（Tab-separated values，制表符分隔值）是用制表符（Tab,'\t'）作为字段值的分隔符
+CSV（Comma-separated values，逗号分隔值）是用半角逗号（','）作为字段值的分隔符
+（4）`-f / --file` 输入数据的地址，默认值是stdin标准输入
+（5）`-q / --query` 待执行的SQL语句，多条语句之间以分号间隔
+2.clickhouse-benchmark是基准测试的小工具，它可以自动运行SQL查询，并生成相应的运行指标报告
+（1）单SQL
+echo "SELECT * FROM system.numbers LIMIT 100" | clickhouse-benchmark -i 5
+执行之后，按照指定的参数，该查询会执行5次。
+然后出具包含QPS（Queries Per Second，每秒查询率）、RPS（Requests Per Second，每秒能处理的请求数目）
+等指标信息的报告，还会出具各百分位的查询执行时间
+（2）多SQL
+可以指定多条SQL进行测试，此时需要将SQL语句定义在文件中。默认会按照定义的顺序依次执行
+echo -e "SELECT * FROM system.numbers LIMIT 100\nSELECT * FROM system.numbers LIMIT 200" > ./multi-sqls.sql
+clickhouse-benchmark -i 5 < ./multi-sqls.sql
+注意：文件中单条SQL不能换行格式化，否则会报错。因为每行都会被当成一条单独的SQL
+核心参数
+（1）`-i / --iterations` SQL查询总共执行的次数，默认是0（即执行1次）
+（2）`-c / --concurrency` 同时执行查询的并发数，默认值是1
+（3）`-r / --randomize` 在执行多条SQL语句时，按照随机顺序执行（后面必须跟任意的数字，作为占位符）
+（4）`-h / --host` 服务端地址，默认是localhost。clickhouse-benchmark支持对比测试，此时需要通过此参数声明两个服务端的地址。
+echo "SELECT * FROM system.numbers LIMIT 100" | clickhouse-benchmark -i 5 -h localhost -h localhost
+这个用例中，使用-h参数指定了两个相同的服务地址（在真实场景中应该声明两个不同的服务），基准测试会分别执行N次（总次数由-i指定，多个服务分别执行的次数不固定，非平均），生成相应的指标报告。在对比测试中，clickhouse-benchmark会通过抽样的方式比较两组查询指标的差距，在默认情况下，置信区间为95%。由于这示例中指定的两个对比服务相同，所以在99.5%置信区间下它们没有区别
+（5）`--confidence` 设置对比测试中置信区间的范围，默认值是5（99.5%），它的取值范围有0（80%）、1（90%）、2（95%）、3（98%）、4（99%）、5（99.5%）
+（6）`--help` 显示帮助
+
+
+目录结构
+/usr/bin/clickhouse            主程序的可执行文件
+/usr/bin/clickhouse-client     软链接，供客户端连接使用。
+/usr/bin/clickhouse-server     软链接，供服务端启动使用。
+/usr/bin/clickhouse-compressor 内置提供的压缩工具，可用于数据的正压反解
+/etc/clickhouse-client         客户端配置，包括conf.d文件夹和conf.xml
+/etc/clickhouse-server         服务端的配置文件目录，包括全局配置config.xml(tcp端口号是9000)和用户配置users.xml
+/var/lib/clickhouse            默认的数据存储目录(通常会修默认路径配置，将数据保存到大容量磁盘挂载的路径)
+/var/log/clickhouse-server     默认保存日志的目录(通常会修改路径配置，将日志保存到大容量磁盘挂载的路径)
+/etc/security/limits.d/clickhouse.conf 文件句柄数量的配置
+root@effd2df06141:/var/log# cat /etc/security/limits.d/clickhouse.conf 
+clickhouse	soft	nofile	262144
+clickhouse	hard	nofile	262144
+/etc/cron.d/clickhouse-server  定时任务配置，用于恢复因异常原因中断的ClickHouse服务进程
+root@effd2df06141:/var/log# cat /etc/cron.d/clickhouse-server
+#*/10 * * * * root (which service > /dev/null 2>&1 && (service clickhouse-server condstart ||:)) || /etc/init.d/clickhouse-server condstart > /dev/null 2>&1
+可以看到，默认情况下，每隔10秒就会使用condstart尝试启动一次clickhouse服务，而condstat命令的启动逻辑是 is_running || service_or_func start
+
+
+
+核心概念
+https://blog.csdn.net/weixin_38255219/article/details/106809690
+1.表引擎(Engine)
+表引擎决定了数据在文件系统中的存储方式，官方推荐的存储引擎是MergeTree系列，如果需要数据副本的话可以使用ReplicatedMergeTree系列，相当于MergeTree的副本版本。读取集群数据需要使用分布式表引擎Distribute
+
+2.表分区(Partition)
+表中的数据可以按照指定的字段分区存储，每个分区在文件系统中都是以目录的形式存在。常用时间字段作为分区字段，数据量大的表可以按照小时分区，数据量小的表可以在按照天分区或者按月分区。查询时使用分区字段作为Where条件，可以有效的过滤掉大量非结果集数据
+
+3.分片(Shard)
+一个分片本身就是ClickHouse一个实例节点，分片的本质就是为了提高查询效率，将一份全量的数据分成多份(片)，从而降低单节点的数据扫描数量，提高查询性能
+
+4.复制集(Replication)
+简单理解就是相同的数据备份，在CK中通过复制集，我们实现保障了数据可靠性外，也通过多副本的方式，增加了CK查询的并发能力。这里一般有2种方式：（1）基于ZooKeeper的表复制方式（2）基于Cluster的复制方式。由于我们推荐的数据写入方式是本地表写入，禁止分布式表写入，所以我们的复制表只考虑ZooKeeper的表复制方案
+
+5.集群(Cluster)
+可以使用多个ClickHouse实例组成一个集群，并统一对外提供服务
+
+
+在ClickHouse中，按照特点可以将表引擎大致分为6个系列，分别是合并树、外部存储、内存、文件、接口和其他。
+MergeTree，其名称中的合并二字，奠定了所有类型的MergeTree的基因，它们的所有特殊逻辑，都是在触发合并的过程中被激活的。
+
+表引擎3
+1.TinyLog
+最简单的表引擎，用于将数据存储在磁盘上，每列都存储在单独的压缩文件中。写入时，数据附加到文件末尾
+缺点：1.没有并发控制（没有做优化，同时写数据会损坏，报错）2.不支持索引 3.数据存储在磁盘上
+优点：1.小表节省空间 2.数据写入，只查询，不做删改操作
+建表：CREATE TABLE student(id Int8, name String) ENGINE=TinyLog
+
+2.Memory
+内存引擎，数据以未压缩的原始形式直接保存在内存中，服务器重启，数据会丢失，读写操作不会相互阻塞，不支持索引。
+优点：简单查询下具有非常高的性能表现（超过10G/s）
+缺点：只建议上限1亿行的场景
+建表：CREATE TABLE student(id Int8, name String) ENGINE=Memory
+
+3.Merge
+本身不存储数据，但可用于同时从任意多个其他的表中读取数据，读是自动并行的，不支持写入。读取时，那些真正被读取到数据的表的索引（如果有的话）会被占用，默认是本地表，不能跨机器。
+参数：一个数据库名和一个用于匹配表名的正则表达式
+建表：CREATE TABLE t(id UInt16, name String) ENGINE = Merge(currentDatabase(), '^t')
+
+4.MergeTree
+ck中最强大的表引擎MergeTree(合并树)和该系列(*MergeTree)中的其他引擎
+使用场景：有巨量数据要插入到表中，一批批写入数据片段，并希望这些数据片段在后台按照一定规则合并。相比在插入时不断修改（重写）数据进行存储，会高效很多。
+优点：1.数据按主键排序 2.可以使用分区（如果指定了主键）3.支持数据副本 4.支持数据采样
+建表：CREATE TABLE student(date Date, id UInt8, name String) ENGINE = MergeTree() PARTITION BY toYYYYMM(date) ORDER BY (id, name) SETTINGS index_granularity=8192
+格式：
+	ENGINE=MergeTree()        引擎名和参数
+	[PARTITION BY expr]       分区键。按月分区，可以使用表达式toYYYYMM()
+					 在/var/lib/clickhouse/data/[databaseName]/[tableName]下可以看到“按时间被分割的文件”
+	[ORDER BY expr]           排序键。可以是一组列的元素或任意的表达式
+	[PRIMARY KEY expr]        主键。默认情况下主键跟排序键相同
+	[SAMPLE BY expr]          用于抽样的表达式。如果要用到抽样表达式，主键中必须包含这个表达式
+	[SETTINGS name=value,...] 影响MergeTree性能的额外参数
+                                1.index_granularity：索引粒度。即索引中相邻[标记]间的数据行数。默认8192
+                                2.use_minimalistic_part_header_in_zookeeper：数据片段头在ZooKeeper中的存储方式
+                                3.min_merge_bytes_to_use_direct_io：使用直接I/O来操作磁盘的合并操作时要求的最小数据量
+
+5.ReplacingMergeTree
+在MergeTree的基础上，增加了“处理重复数据”的功能，和MergeTree的不同之处在于他会删除具有相同主键的重复项，数据的去重只会在合并的过程中出现，合并会在未知的时间在后台进行，所以你无法预先做出计划，有一些数据可能仍未被处理，适用于在后台清除重复的数据以节省空间，但是不保证没有重复的数据出现。
+建表：CREATE TABLE t(date Date, id UInt8, name String) ENGINE=ReplacingMergeTree(name) PARTITION BY date ORDER BY(id, name);
+
+6.SummingMergeTree
+继承自MergeTree，当合并SummingMergeTree表的数据片段时，CK会把具有相同主键的行合并为一行，该行包含了被合并的行中具有数值类型的列的汇总值。如果主键的组合方式使得单个键值对应于大量的行，则可以显著的减少存储空间并加快查询的速度，对于不可加的列，会取一个最先出现的值。
+建表：CREATE TABLE smt_table(date Date, name String, sum UInt16, not_sum UInt16) engine=SummingMergeTree(sum) PARTITION BY date ORDER BY(date, name)
+
+7.AggregatingMergeTree
+8.CollapsingMergeTree
+9.VersionedCollapsingMergeTree
+11.Distributed
+分布式引擎，本身不存储数据，但可以在多个服务器上进行分布式查询，读是自动并行的，读取时，远程服务器的索引（如果有的话）会被使用
+建表：
+在hadoop01,hadoop02,hadoop03,建表并插入数据
+CREATE table t(id UInt16, name String) ENGINE = TinyLog;
+在hadoop01上创建分布式表
+CREATE TABLE dis_table(id UInt16, name String) ENGINE = Distributed(clickhouse_cluster, databaseName, t, id);
+格式：
+	[cluster_name]      服务器配置文件中的集群名，在/etc/metrika.xml中配置的
+	[database]          数据库名
+	[table]             表名
+	[sharding_key]      数据分片键
+
+
+数据链路
+App日志—（采集）—LogServer日志收集器—（生产）—Kafka—（消费）—Flink——（ETL）——Clickhouse——（自助查询）—Redash——（结果展示）—报表
+
+
+系统实现
+在flink端动态设置schema信息，ETL处理数据，动态生成宽表，数据存入Clickhouse，按天分区，Clickhouse使用Distributed表引擎，数据保留7天，避免数据过度膨胀，导致查询性能降低，使用Redash报表工具，分析人员可以写SQL自助查询，结果自定义图表展示
+
+
+数据仓库：是出报表数据给决策者做决策的。任何一个报表都由两个部分组成：维度表和事实
+1.维度表：维度表可以看成是用户用来分析一个事实的窗口，它里面的数据应该是对事实的各个方面描述，比如时间维度表，它里面的数据就是一些日，周，月，季，年，日期等数据，维度表只能是事实表的一个分析角度
+2.实体表：实体表就是一个实际对象的表，实体表它放的数据一定是一条条客观存在的事物数据，比如说设备，它就是客观存在的，所以可以将其设计成一个实体表
+3.事实表：事实表的实质就是通过各种维度和一些指标值的组合来确定一个事实的，比如通过时间维度，地域组织维度，指标值可以去确定在某时某地的一些指标值是怎样的事实。事实表的每一条数据都是几条维度表的数据和指标值交汇而得到的。
+
+
+数据字典
+数据字典是ClickHouse提供的一种简单、实用的存储媒介，它以键值和属性映射的形式定义数据。字典中的数据会主动或被动（数据是在ClickHouse启动时主动加载还是在首次查询时惰性加载由参数设置决定）加载到内存，并支持动态更新。由于字典数据常驻内存的特性，所以它非常适合保存常量或经常使用的维度表数据，以避免不必要的JOIN查询。
+数据字典分为内置与扩展两种形式。内置字典是ClickHouse默认自带的字典，而外部扩展字典是用户通过自定义配置实现的字典。在正常情况下，字典中的数据只能通过字典函数访问（ClickHouse特别设置了一类字典函数，专门用于字典数据的取用）。也有一种例外，那就是使用特殊的字典表引擎，将数据字典挂载到一张代理的数据表下，从而实现数据表和字典数据的JOIN查询。
+【书本P69，有错，数据来源有4类，但后面有的地方分4类，有的地方又分3类】
+外部扩展字典是以插件的形式注册到ClickHouse中的。扩展字典支持7种类型的内存布局（layout）和3大类共9种数据来源（source）。
+7种类型（layout）：flat（初始1024，上限50万行）、hashed、cache、complex_key_hashed、complex_key_cache、range_hashed、ip_trie
+3种来源（source）：文件类型（本地、可执行、远程），数据库类型（MySQL、ClickHouse、MongoDB），通过ODBC连接PostgreSQL和MS SQL Server作为数据源
+4种来源（source）：Local file（*cache不支持该来源）、Executable file（通过cat命令访问数据文件）、HTTP、DBMS
+ClickHouse会自动识别并加载/etc/clickhouse-server目录下所有以 _dictionary.xml 结尾的配置文件。同时Clickhouse也能够动态感知此目录下配置文件的各种变化，并支持不停机在线更新配置文件。在单个字典配置文件内，可以定义多个字典，其中每一个字典由一组dictionary元素定义。5个子元素如下
+1.name：字典的名称，用于确定字典的唯一标识，必须全局唯一，多个字典之间不允许重复
+2.structure：定义字典的数据结构，由键值key和属性attribute两部分组成，分别描述字典的数据标识和字段属性。
+3.layout：字典的类型，它决定了数据在内存种以何种结构组织和存储
+4.source：字典的数据源，它决定了字典中的数据从何处加载（format表示数据格式，例如CSV或者TabSeparated）
+5.lifetime：字典的更新时间。扩展字典支持数据在线更新，更新的频率由配置文件中的lifetime元素指定，单位为秒。min和max分别指定了更新间隔的上下限。ClickHouse会在这个时间区间内随机触发更新动作，这样能够有效错开更新时间，避免所有字典在同一时间内爆发性的更新。当min和max都是0的时候，将禁用字典更新。对于cache字典而言，lifetime还代表了它的缓存失效时间。
+字典内部拥有版本的概念，在数据更新的过程中，旧版本的字典将持续提供服务，只有当更新完全成功之后，新版本的字典才会代替旧版本。所以更新操作或者更新时发生的异常，并不会对字典的使用产生任何影响。总体来说，扩展字典目前并不支持增量更新。
+手动触发更新命令：SYSTEM RELOAD DICTIONARIES [dict_name] 不填名称，则所有数据字典更新
+SELECT name, type, key, attribute.name, attribute.types, source FROM system.dictionaries
+MySQL查看表信息：SHOW TABLE STATUS WHERE Name = 'tableName'
+
+字典数据只能通过字典函数获取：SELECT dictGet('dict_name', 'attr_name', toUInt64(key))
+如果字典使用了复合型key，则需要使用元组作为参数传入：SELECT dictGet('dict_name', 'attr_name', tuple(IPv4StringToNum('ip_addr')))
+1.除了通过字典函数读取数据外，ClickHouse还提供了另一种借助字典表的形式来读取数据。字典表是使用Dictionary表引擎的数据表
+CREATE TABLE tb_test_flat_dict(
+    id UInt64,
+    code String,
+    name String
+) ENGINE = Dictionary(test_flat_dict)
+2.ClickHouse支持使用DDL查询创建字典
+CREATE DICTIONARY test_dict(
+    id UInt64,
+    value String
+)
+PRIMARY KEY id
+LAYOUT(FLAT())
+SOURCE(FILE(PATH '/usr/bin/cat' FORMAT TabSeparated))
+LIFETIME(1)
+总结：数据字典能够有效地帮助我们消除不必要的JOIN操作（例如根据ID转名称），优化SQL查询，为查询性能带来质的提升
+
+
+MergeTree原理解析
+Clickhouse拥有合并树、外部存储、内存、文件、接口和其他6大类20多种表引擎。而在这众多的表引擎种，又属合并树（MergeTree）表引擎及其家族引擎（*MergeTree）最为强大，在生产环境的绝大部分场景中，都会使用此系列的表引擎。因为只有合并树系列的表引擎才支持主键索引、数据分区、数据副本和数据采样
+
+table_name
+|
+|-partition_1
+| |
+| |-checksums.txt（校验）
+| |-columns.txt（列信息）
+| |-count.txt（计数）
+| |-primary.idx（一级索引）
+| |-[Column].bin（数据文件）
+| |-[Column].null.bin（如果使用了nullable，会额外生成该字段）
+| |-[Column].mrk（列字段标记）
+| |-[Column].mrk2（如果使用自适应大小的索引间隔，则标记文件会以.mrk2命名）
+| |-partition.dat（保存当前分区下分区表达是最终生成的值）
+| |-minmax_[Column].idx（记录当前分区下分区字段对应原始数据的最小和最大值）
+| |-skp_idx_[Column].idx（在建表语句中声明了二级索引后会生成，又称跳数索引，有minmax、set、ngrambf_v1、tokenbf_v1四种类型）
+| |-skp_idx_[Column].mrk
+|
+|-Partition_2
+|-Partition_n
+
+跳数索引（和merge_tree_coarse_index_granularity的区别是什么，没看懂）
+
+CREATE TABLE skip_test (
+  ID String,
+  URL String,
+  Code String,
+  EventTime Date,
+  INDEX a ID TYPE minmax GRANULARITY 5,
+  INDEX b (length(ID) * 8) TYPE set(2) GRANULARITY 5,
+  INDEX c (ID, Code) TYPE ngrambf_v1(3,256,2,0) GRANULARITY 5,
+  INDEX d ID TYPE tokenbf_v1(256,2,0) GRANULARITY 5
+) ENGINE = MergeTree()
+
+
+布隆过滤器
+用哈希表，每存储一亿个URL地址，就需要1.6GB的内存（用哈希表实现的具体实现方式是将每一个URL地址对应成一个八字节的信息指纹，然后将这个信息存储在哈希表中，但是由于哈希表的存储效率一般只有50%，一旦存储空间大于表长的50%，查找速度就会明显的下降（容易发生冲突），即存储一个E-mail我们需要给它分配十六字节的大小，一亿个地址的大小大约就要1.6GB内存）
+在这种情况下，巴顿·布隆在1970年提出了布隆过滤器，它只需要哈希表的1/8到1/4的大小就可以解决同样的问题。用一串很长的二进制向量，类似Java中BitSet类的算法思想。它用位空间来存储我们平常的整数，可以将数据的存储空间急剧压缩。然后需要一系列随机映射函数（哈希函数）来将我们的URL映射成到二进制向量上，并将相关位置1，我们将其称为一系列的“信息指纹”。
+当然，即使数组的容量即使再大，也是有限的。那么随着元素的增加，插入的元素就会越多，位数组中被置为1的位置因此也越多，这就会造成一种情况：当一个不在布隆过滤器中的元素，经过同样规则的哈希计算之后，得到的值在位数组中查询，有可能这些位置因为之前其它元素的操作先被置为1了。所以，有可能一个不存在布隆过滤器中的会被误判成在布隆过滤器中，这就是布隆过滤器的一个缺陷。其特点如下：
+(1)布隆过滤器说某个元素在，可能会被误判（实际不存在）
+(2)布隆过滤器说某个元素不在，那么一定不在
+
+布隆过滤器误判率表
+比率（集合大小：布隆过滤器位数） 误判率
+1:1   0.6185
+1:2   0.3825
+1:4   0.1463
+1:8   0.0214
+1:16  0.0004586
+1:32  0.0000002
+1:64  0.000000000000044
+
+<dependency>
+<groupId>com.google.guava</groupId>
+<artifactId>guava</artifactId>
+<version>23.0</version>
+</dependency> 
+
+
+数据存储
+按列存储的设计优势：一是可以更好地进行数据压缩（相同类型的数据放在一起，对压缩更加友好），二是能够最小化数据扫描的范围
+MergeTree并不是一股脑地将数据直接写入.bin文件，而是经过了一番精心设计：首先，数据是经过压缩的，目前支持LZ4、ZSTD、Multiple和Delta几种算法，默认使用LZ4算法；其次，数据会事先依照ORDER BY的声明顺序；最后，数据是以压缩数据块的形式被组织并写入.bin文件中
+
+查寻某个.bin文件中压缩数据的统计信息：/usr/bin/clickhouse-compressor --stat /var/lib/clickhouse/data/default/hits_v1/201403_1_34_3/JavaEnable.bin
+65536   12000
+65536   14661
+65536   4936
+65536   7506
+省略...
+其中每一行数据代表着一个压缩数据块的头信息，其分别表示该压缩块中未压缩数据大小和压缩后数据大小（打印信息与物理存储的顺序刚好相反）
+
+一个.bin文件是由1至多个压缩数据块组成的，每个压缩数据块大小在64KB～1MB之间。多个压缩数据块之间，按照写入顺序首尾相接，紧密地排列在一起
+在.bin文件中引入压缩数据块的目的至少有以下两个：其一，虽然数据被压缩后能够有效减少数据大小，降低存储空间并加速数据传输效率，但数据的压缩和解压动作，其本身也会带来额外的性能损耗。所以需要控制被压缩数据的大小，以求在性能损耗和压缩率之间寻求一种平衡。其二，在具体读取某一列数据时（.bin文件），首先需要将压缩数据加载到内存并解压，这样才能进行后续的数据处理。通过压缩数据块，可以在不读取整个.bin文件的情况下，将读取粒度降低到压缩数据块级别，从而进一步缩小数据读取的范围。
+
+
+数据TTL（Time To Live）标书数据的存活时间。在MergeTree中，可以为某个列字段或整张表设置TTL。当时间到达时，如果时列字段级别的TTL，则会删除这一列的数据（还原为数据类型的默认值）；如果是表级别的TTL，则会删除整张表的数据。如果同时设置了列级别和表级别的TTL，则会以先到期的那个为主。
+INTERVAL完整的操作包括：SECOND、MINUTE、HOUR、DAY、WEEK、MONTH、QUARTER、YEAR
+1.列级别的TTL
+
+2.表级别的TTL
+
+OPTIMIZE TABLE <tableName>       根据ORDER BY合并一个分区内的数据
+OPTIMIZE TABLE <tableName> FINAL 在每个分区内，根据ORDER BY进行合并
+SELECT * FROM <tableName> FINAL  无视分区，仅根据ORDER BY合并搜索结果
+
+多路径存储策略
+
+
+ClickHouse Merge合并时机问题
+首先 Merge不是实时的，是后台定时任务去自动merge，只有在合并过程中才会出现重复数据删除，无法设置或掌控，一般merge时间是10-15分钟，但是如果某个分区一直不写入新的数据可能存在该分区一直不merge，这没发保证的。如果需要该分区merge，只能强制merge。
+强制merge建议带分区
+optimize TABLE sales_db.order_detail PARTITION (202001,202005)  FINAL;
+强制merge属于CPU性操作，会相当耗费CPU资源，建议在晚上系统负载比较小的时候执行，其次强制merge不会有锁的概念，表还是可以正常查询写入
+
+
+第7章 MergeTree系列CollapseMergeTree表引擎
+MergeTree有两层含义：其一，表示合并树表引擎家族；其二，表示合并树家族中最基础的MergeTree表引擎。除基础表引擎之外，常用的表引擎还有ReplacingMergeTree、SummingMergeTree、AggregatingMergeTree、CollapsingMergeTree、VersionedCollapsingMergeTree。它们的所有特殊逻辑，都是在触发合并的过程中被激活的。
+1.ReplacingMergeTree
+虽然MergeTree拥有主键，但是它的主键却没有唯一键的约束。这意味着即便多行数据的主键相同，它们还是能够被正常写入。ReplacingMergeTree就是为了数据去重而设计的，它能够在合并分区时，以分区为单位，删除重复的数据。ReplacingMergeTree在去除重复数据时，是以ORDER BY排序建为基准的，而不是PRIMARY KEY。
+ENGINE=ReplacingMergeTree(ver)，ver是选填参数，会指定一个UInt*、Date或者DateTime类型的字段作为版本号。该参数决定了去重时所使用的算法
+总结：
+（1）使用ORDER BY排序键作为判断重复数据的唯一键。
+（2）只有在合并分区的时候才会触发删除重复数据的逻辑。
+（3）以数据分区为单位删除重复数据。当分区合并时，同一分区内的重复数据会被删除；不同分区之间的重复数据不会被删除。
+（4）在进行数据去重时，因为分区内的数据已经基于ORDER BY进行了排序，所以能够找到那些相邻的重复数据
+（5）数据去重的策略有两种：如果没有设置ver版本号，则保留同一组重复数据中的最后一行；如果设置了ver版本号，则保留同一组重复数据中ver字段取值最大的那一行
+2.SummingMergeTree
+终端用户只需要查询数据的汇总结果，不关心明细数据，并且数据的汇总条件是预先明确的（GROUP BY条件明确，且不会随意改变）
+如果使用MergeTree存储数据，然后通过GROUP BY聚合查询，并利用SUM回合函数汇总结果。这种方案存在两个问题
+（1）存在额外的存储开销：终端用户不会查询任何明细数据，只关心汇总结果，所以不应该一直保存所有的明细数据
+（2）存在额外的查询开销：终端用户只关心汇总结果，虽然MergeTree性能强大，但是每次查询都进行实时聚合计算也是一种性能消耗
+SummingMergeTree能够在合并分区的时候按照预先定义的条件聚合汇总数据，将同一分组下的多行数据汇总合并成一张，这样既减少了数据行，又降低了后续汇总查询的开销
+MergeTree的每个数据分区内，数据会按照ORDER BY表达式排序。主键索引也会按照PRIMARY KEY表达式取值并排序。而ORDER BY可以代替主键，所以一般情况下，只单独声明ORDER BY即可。此时，ORDER BY与PRIMARY KEY定义相同，数据排序与主键索引相同
+如果需要同时定义ORDER BY与PRIMARY KEY，通常只有一种可能，那便是明确希望ORDER BY与PRIMARY KEY不同。这种情况通常只会在使用SummingMergeTree或AggregatingMergeTree时才会出现。因为SummingMergeTree与AggregatingMergeTree的聚合都是根据ORDER BY进行的。因此，将主键（用来查询过滤）与聚合的条件定义分离，可以为修改聚合条件留下空间。
+如果同时声明了ORDER BY与PRIMARY KE，MergeTree会强制要求PRIMARY KEY列字段必须是ORDER BY的前缀。这种强制约束保障了即使在两者定义不同的情况下，主键仍然是排序键的前缀，不会出现索引与数据顺序混乱的问题
+修改排序键（ALTER是一种元数据的操作，修改成本很低）
+（1）减少字段。ALTER TABLE table_name MODIFY ORDER BY (A, B);
+（2）新增字段，新增的字段只能是之前未定义过的。ALTER TABLE table_name ADD COLUMN col_N String, MODIFY ORDER BY (id, A, B col_N);
+ENGINE=SummingMergeTree((col1,col2,...))，这是一个选填参数，用于设置除主键外的其他数值类型字段，以指定被SUM汇总的列字段。如果不填写此参数，则会将所有非主键的数值类型字段进行SUM汇总。SummingMergeTree在进行数据汇总时，会根据ORDER BY表达式的取值进行聚合操作。
+执行optimize可以强制进行触发和合并操作：optimize TABLE table_name FINAL
+SummingMergeTree也支持嵌套类型的字段，在使用嵌套类型字段时，需要被SUM汇总的字段名称必须以Map后缀结尾
+CREATE TABLE summing_table_nested(
+    id String,
+    nestMap Nested(
+        id UInt32,
+        key UInt32,
+        val UInt64
+    ),
+    create_time DateTime
+) ENGINE = SummingMergeTree()
+PARTITION BY toYYYYMM(create_time)
+ORDER BY id
+在使用嵌套数据类型的时候，默认情况下，会以嵌套类型中第一个字段作为聚合条件Key。假设表内的数据如下
+id      nestMap.id  nestMap.key nestMap.val     create_time
+A001    [1,1,2]     [10,20,30]  [40,50,60]      2019-08-10 17:00:00
+聚合后
+id      nestMap.id  nestMap.key nestMap.val     create_time
+A001    [1,2]       [30,30]     [90,60]         2019-08-10 17:00:00
+在使用嵌套数据类型的时候，也支持使用复合Key作为数据聚合的条件。为了使用复合Key，在嵌套类型的字段中，除第一个字段以外，任何名称是以Key、Id或Type为后缀结尾的字段，都将和第一个字段一起组成复合Key。
+总结：
+（1）用ORDER BY排序键作为聚合数据的条件Key
+（2）只有在合并分区的时候才会触发汇总的逻辑
+（3）以数据分区为单位来聚合数据。当分区合并时，同一数据分区内聚合Key相同的数据会被合并汇总，而不同分区之间的数据则不会被汇总
+（4）如果在定义引擎时指定了columns汇总列（非主键的数值类型字段），则SUM汇总这些字段；如果未指定，则聚合所有非主键的数值类型字段
+（5）在进行数据汇总时，因为分区内的数据已经基于ORDER BY排序，所以能够找到相邻且拥有相同聚合Key的数据
+（6）在汇总数据时，同一分区内，相同聚合Key的多行数据会合并成一行。其中，汇总字段会进行SUM计算；对于那些非汇总字段，则会使用第一行数据的取值。
+（7）支持嵌套结构，但列字段名成必须以Map后缀结尾。嵌套类型中，默认以第一个字段作为聚合Key。除第一个字段以外，任何名称以Key、Id或Type为后缀结尾的字段，都将和第一个字段一起组成复合Key
+3.AgregatingMergeTree
+“数据立方体”是在数据仓库领域十分常见的模型。它通过空间换时间的方法提升查询性能，将需要聚合的数据预先计算出来，并将结果保存起来。在后续进行聚合查询的时候，直接使用结果数据
+AggregatingMergeTree能够在合并分区的时候，按照预先定义的条件聚合数据。同时，根据预先定义的聚合函数计算数据并通过二进制的格式存入表内。将同一分组下的多行数据聚合成一行，既减少了数据行，又降低了后续聚合查询的开销。
+AggregatingMergeTree是SummingMergeTree的升级版，它们许多设计思路都是一致的，例如同时定义ORDER BY与PRIMARY KEY的原因和目的
+ENGINE = AggregatingMergeTree()
+AggregatingMergeTree没有任何额外的设置参数，在分区合并时，在每个数据分区内，会按照ORDER BY聚合。而使用何种聚合函数，以及针对哪些字段计算，则是通过定义AggregateFunction数据类型实现的。
+CREATE TABLE agg_table(
+  id String,
+  city String,
+  code AggregateFunction(uniq, String), --聚合字段，语义等同于 UNIQ(code)。求 COUNT(DISTINCT x) 时，使用 uniq 函数
+  value AggregateFunction(sum, UInt32), --聚合字段，语义等同于 SUM(value)
+  create_time DateTime
+)ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(create_time)
+ORDER BY (id,city) -- 聚合条件，语义等同于 GROUP BY id, city
+PRIMARY KEY id
+AggregateFunction是Clickhouse提供的一种特殊的数据类型，它能够以二进制的形式存储中间状态结果。其使用方法也十分特殊，对于AggregateFunction类型的列字段，数据的写入和查询都与寻常不同。
+在写入数据时，需要调用*State函数，并且使用INSERT SELECT语法（*表示定义时使用的聚合函数）
+INSERT INTO TABLE agg_table SELECT 'A000', 'wuhan', uniqState('code1'), sumState(toUInt32(100)), '2019-08-10 17:00:00'
+在查询数据时，则需要调用相应的*Merge函数（*表示定义时使用的聚合函数）。直接使用列名访问，将会是无法显示的二进制形式
+SELECT id, city, uniqMerge(code), sumMerge(value) FROM agg_table GROUP BY id,city
+AggregatingMergeTree更常见的应用方式是结合物化视图使用，将它作为物化视图的表引擎
+首先，建立明细数据表，也就是俗称的底表
+CREATE TABLE agg_table_basic (
+    id String,
+    city String,
+    code String,
+    value UInt32
+) ENGINE = MergeTree()
+PARTITION BY city
+ORDER BY (id, city)
+通常会使用MergeTree作为底表，用于存储全量的明细数据，并以此对外提供实时查询。接着新建一张物化视图
+CREATE MATERIALIZED VIEW agg_view
+ENGINE = AggregatingMergeTree()
+PARTITION BY city
+ORDER BY (id, city)
+AS SELECT id,city,uniqState(code) AS code, sumState(value) AS value -- 因为是要插入到物化视图，所以这里用的是 *State
+FROM agg_table_basic
+GROUP BY id,city
+在新增数据时，面向的对象是底表MergeTree。
+INSERT INTO TABLE agg_table_basic VALUES （'A00', 'wuhan', 'code1', 100）,（'A00', 'wuhan', 'code2', 200），（'A00', 'zhuhai', 'code1', 200）
+数据会自动同步到物化视图，并按照AggregatingMergeTree引擎的规则处理。在查询数据时，面向的对象是物化视图
+SELECT id, uniMerge(code), sumMerge(value) FROM agg_view GROUP BY id, city
+总结：
+（1）用ORDER BY排序键作为聚合数据的条件Key
+（2）使用AggregateFunction字段类型定义聚合函数的类型以及聚合的字段
+（3）只有在合并分区的时候才会触发聚合计算的逻辑
+（4）以数据分区为单位来聚合数据。当分区合并时，同一数据分区内聚合Key相同的数据会被合并计算，而不同分区之间的数据则不会被计算
+（5）在进行数据计算时，因为分区内的数据已经基于ORDER BY排序，所以能够找到那些相邻且拥有相同聚合Key的数据
+（6）在聚合数据时，同一分区内，相同聚合Key的多行数据会合并成一行。对于那些非主键、非AggregateFunction类型字段，则会使用第一行数据的取值。
+（7）AggregateFunction类型的字段使用二进制存储，在写入数据时，需要调用*State函数；而在查询数据时，则需要调用相应的*Merge函数。其中，*表示定义时使用的聚合函数。
+（8）AggregatingMergeTree通常作为物化视图的表引擎，与普通MergeTree搭配使用
+4.ColapsingMergeTree
+传统数据库支持对已经存在的数据实现行级粒度的修改或删除：首先找到保存数据的文件，接着修改这个文件，删除或者修改那些需要变化的数据行
+然而在大数据领域，对于Clickhouse这类高性能分析型数据库而言，对数据源文件修改是一件非常奢侈且代价高昂的操作。相较于直接修改源文件，它们会将修改和删除操作转换成新增操作，即以增代删。
+CollapsingMergeTree就是一种通过以增代删的思路，支持行级数据修改和删除的表引擎。它通过定义一个sign标记位字段，记录数据行的状态。如果sign标记为1。则表示这是一行有效的数据；如果sign标记为-1，则表示这行数据需要被删除。当CollapsingMergeTree分区合并时，同一分区内，sign标记为1和-1的一组数据会被抵消删除。犹如一张瓦楞纸折叠了一般，因此被称为折叠合并树。它同样是以ORDER BY排序键作为后续判断数据唯一性的依据。
+ENGINE = CollapsingMergeTree(sign) -- sign用与指定一个Int8类型的标志位字段
+折叠时，遵循以下规律
+（1）如果sign=1比sign=-1的数据多一行，则保留最后一行sign=1的数据
+（2）如果sign=-1比sign=1的数据多一行，则保留第一行sign=-1的数据
+（3）如果sign=1和sign=-1的数据行一样多，并且最后一行是sign=1，则保留第一行sign=-1和最后一行sign=1的数据
+（4）如果sign=1和sign=-1的数据行一样多，并且最后一行是sign=-1，则什么也不保留
+（5）其余情况，Clickhouse会打印警告日志，但不会报错，在这种情形下，查询结果不可预知
+注意：
+（1）折叠数据不是实时触发的，和所有其他的MergeTree变种表引擎一样，这项特性也只有在分区合并的时候才会体现。所以在分区合并之前，用户还是会看到旧的数据。解决这个问题的方式有两种
+    a）在查询数据之前，使用optimize TABLE table_name FINAL命令强制合并分区，但是这种方法效率极低，在实际生产环境中慎用。
+    b）需要改变我们的查询方式。
+    SELECT id, SUM(code), COUNT(code), AVG(code), uniq(code) FROM collapse_table GROUP BY id
+    =>
+    SELECT id, SUM(code*sign), COUNT(code*sign), AVG(code*sign), uniq(code*sign) FROM collapse_table GROUP BY id HAVING SUM(sign) > 0
+    having子句用来在分组之后，进行数据筛选
+（2）只有相同分区内的数据才有可能被折叠。不过这项限制对于CollapsingMergeTree来说通常不是问题，因为修改或者删除数据的时候，这些数据的分区规则通常都是一致的，并不会改变
+（3）最后这项限制可能是CollapsingMergeTree最大的命门所在。CollapsingMergeTree对于写入数据的顺序有严格的要求。这种现象是CollapsingMergeTree的处理机制引起的，因为它要求sign=1和sign=-1的数据相邻。而分区的数据基于ORDER BY排序，要实现sign=1和sign=-1的数据相邻，则只能靠严格按照顺序写入
+5.VersionedCollapsingMergeTree
+如果数据的写入程序是单线程执行的，则能较好的控制写入顺序；如果需要处理的数据量很大，数据的写入程序通常是多线程执行的，那么此时就不能保障数据的写入顺序了。VersionedCollapsingMergeTree对写入顺序没有要求，通过“版本号”实现任意顺序数据的折叠。
+VersionedCollapsingMergeTree在定义的时候，除了要指定一个Int8的sign，还要指定一个UInt8类型的ver版本号
+ENGINE = VersionedCollapsingMergeTree(sign,ver)
+VersionedCollapsingMergeTree会自动将ver作为排序条件增加到ORDER BY的末端。例如：ORDER BY id, city, ver DESC。所以无论写入时数据的顺序如何，在折叠处理时，都能回到正确的顺序。
+6.GraphiteMergeTree
+（无）
+从继承关系的角度来看，MergeTree与其6个变种表引擎的主要区别在于Merge逻辑部分，所以特殊功能只会在Merge合并时才会触发
+ReplicatedMergeTree在MergeTree能力的基础之上增加了分布式协同的能力，其借助Zookeeper的消息日志广播功能，实现了副本实例之间的数据同步功能
+
+第8章 其他常见表引擎
+Everything is table（万物皆是表）是ClickHouse一个非常有意思的设计思路。在数据表背后无论连接的是本地文件、HDFS、Zookeeper还是其他服务，终端用户始终只需面对数据表，只需使用SQL查寻语言
+1.外部存储系列的表引擎，能够直接从其他存储系统读取数据，clickhouse自身只负责元数据管理和数据查寻，类似使用外挂表的形式，并不负责数据的写入，数据文件直接由外部系统提供
+(1)HDFS：HDFS是一款分布式文件系统，HDFS表引擎能够直接读取HDFS内的文件。由于HDFS表引擎目前还不支持Kerberos，因此需要关闭HDFS的Kerberos认证
+接着创建目录并授权
+hadoop fs -mkdir /clickhouse
+hadoop fs -chown -R clickhouse:clickhouse /clickhouse
+HDFS表引擎定义如下： ENGINE = HDFS（hdfs_uri, format）
+hdfs_uri 表示HDFS的文件存储路径
+format 表示文件格式（指Clickhouse支持的文件格式，常见的有 CSV、TSV 和 JSON 等）
+HDFS表引擎通常有两种使用形式
+- 既负责读文件，又负责写文件
+- 只负责读文件，文件的写入工作则由其他外部系统完成
+【第一种方式】即HDFS文件的创建与查询均使用HDFS数据表。
+CREATE TABLE hdfs_table1(
+    id UInt32,
+    code String,
+    name String
+) ENGINE = HDFS('hdfs://hdp1.nauu.com:8020/clickhouse/hdfs_table1', 'CSV')
+接着写入测试数据
+INSERT INTO hdfs_table1 SELECT number, concat('code', toString(number)), concat('n', toString(number)) FROM numbers(5)
+之后就可以通过数据表查询，或查看HDFS的相关文件了
+SELECT * FROM hdfs_table1
+hadoop fs -cat /clickhouse/hdfs_table1
+不过Clickhouse并没有提供删除HDFS文件的方法，即便将数据表hdfs_table1删除，HDFS上的文件依然存在
+DROP Table hdfs_table1
+hadoop fs -ls /clickhouse
+【第二种形式】类似Hive的外挂表，由其他系统直接将文件写入HDFS。通过HDFS表引擎的 hdfs_uri 和 format 参数分别与 HDFS 的文件路径、文件格式建立映射。hdfs_uri 支持以下几种配置方法
+- 绝对路径：会读取指定路径下的单个文件
+- *通配符：匹配所有字符，例如路径为 '/clickhouse/hdfs_table/*'，则会读取 /clickhouse/hdfs_table 路径下的所有文件
+- ?通配符：匹配单个字符，例如路径为 '/clickhouse/hdfs_table/organization_?.csv'，则会读取 /clickhouse/hdfs_table 路径下与 organization_?.csv匹配的文件，其中 ? 代表任意一个合法字符
+- {M..N}数字区间：匹配指定数字的文件，例如路径为 /clickhouse/hdfs_table/organization_{1..3}.csv，则会读取 /clickhouse/hdfs_table/ 路径下的文件 organization_1.csv、organization_2.csv、organization_3.csv 
+上传文件至HDFS
+hadoop fs -put /chbase/demo-data/ /clickhouse/hdfs_table2
+hadoop fs -ls /clickhouse/hdfs_table2
+接着创建测试表
+CREATE TABLE hdfs_table2(
+    id UInt32,
+    code String,
+    name String
+) ENGINE = HDFS('hdfs://hdp1.nauu.com:8020/clickhouse/hdfs_table2/*', 'CSV') 
+(2)MySQL：MySQL表引擎可以与MySQL数据库中的数据表建立映射，并通过SQL向其发起远程查询，包括SELECT和INSERT
+ENGINE = MySQL('host:port', 'database', 'table', 'user', 'password'[, replace_query, on_duplicate_clause])
+replace_query 默认为0，设置为1，会用 REPLACE INTO 代替 INSERT INTO 。replace into 首先尝试插入数据到表中，如果发现表中已经有此行数据（根据主键或者唯一索引判断）则先删除此行数据，然后插入新的数据。否则，直接插入新数据。
+on_duplicate_clause 默认为0，对应 MySQL 的 ON DUPLICATE KEY 语法。若要启用该设置，必须将 replace_query 设置成0。例如 insert into test values (3,2) on duplicate key update id=1;
+CREATE TABLE dolphin_scheduler_table(
+    id UInt32,
+    name String
+) ENGINE = MySQL('10.37.129.2:3306', 'escheduler', 't_escheduler_process_definition', 'root', '')
+CREATE MATERIALIZED VIEW view_mysql1
+ENGINE = MergeTree()
+ORDER BY id
+AS SELECT * FROM dolphin_scheduler_table
+物化视图是包括一个查寻结果的数据库对象，它是远程数据的本地副本。当通过MySQL表引擎向远端MySQL数据库写入数据的同时，物化视图也会同步更新数据。
+遗憾的是，MySQL表引擎不支持任何 UPDATE 和 DELETE 操作，如果有数据更新方面的诉求，可以考虑使用 CollapsingMergeTree
+(3)JDBC：JDBC能够与大部分常见的数据库对接，但它无法单独完成所有的工作，它需要依赖名为clickhouse-jdbc-bridge的查询代理服务。clickhouse-jdbc-bridge是一款基于Java语言实现的SQL代理服务，它的项目地址为：https://github.com/ClickHouse/clickhouse-jdbc-bridge。clickhouse-jdbc-bridge可以为ClickHouse代理访问其他的数据库，并自动转换数据类型。使用maven构建后，使用生成的jar包
+在使用JDBC表引擎之前，首先需要启动clickhouse-jdbc-bridge代理服务
+java -jar ./clickhouse-jdbc-bridge-1.0.jar --driver-path /chbase/jdbc-bridge --listen-host ch5.nauu.com
+'--driver-path' 用于指定放置数据库驱动的目录，例如要代理查询PostgreSQL数据库，则需要将它的驱动jar放置到这个目录     
+'--listen-host' 用于代理服务的监听端口，通过这个地址访问代理服务，ClickHouse 的 jdbc_bridge  配置项与此参数对应。
+代理服务配置好后，要在config.xml全局配置中增加代理服务的访问地址
+<yandex>
+    ...
+    <jdbc_bridge>
+        <host>ch5.nauu.com</host>
+        <port>9019</port>
+    </jdbc_bridge>
+</yandex>
+JDBC表引擎的声明方式 ENGINE = JDBC('jdbc:url','database','table')
+CREATE TABLE t_ds_process_definition (
+    id Int32,
+    name String
+) ENGINE = JDBC('jdbc:postgresql://ip:5432/dolphinscheduler?user=test&password=test', '', 't_ds_process_definition')
+伴随着每一次SELECT查询，JDBC表引擎首先会向clickhouse-jdbc-bridge发送一次ping请求，以探测代理是否启动。如果ping服务访问不到，或者返回值不是"OK"，那么将会得到错误提示。如果返回值是"OK"，之后代理查询通过JDBC协议访问数据库，并将数据返回给JDBC引擎。
+除了JDBC表引擎之外，jdbc函数也能够通过clickhouse-jdbc-bridge代理访问其他数据库
+SELECT id,name FROM jdbc('jdbc:postgresql://ip:5432/dolphinscheduler?user=test&password=test', '', 't_ds_process_definition')
+(4)Kafka: Kafka是大数据领域非常流行的一款分布式消息系统。Kafka表引擎能够直接与Kafka系统对接，进而订阅Kafka中的主题并实时接收消息数据
+消息系统中存在三层语义：
+【最多一次（At most once）】可能出现丢失数据的情况，因为在这种情形下，一行数据在消费端最多只会被接收一次
+【最少一次（At least once）】可能出现重复数据的情况，因为这种情形下，一行数据在消费端允许被接收多次
+【恰好一次（Exactly once）】数据不多也不少，这种情形是最为理想的情况
+虽然Kafaka本身能够支持上述三层语义，但是Clickhouse还不支持恰好一次（Exactly one）的语义
+Kafka使用offset标志位记录主题数据被消费的位置信息，当应用端接收到消息之后，通过自动或手动执行Kafka commit，提交当前的offset信息，以保障消息的语义。
+Kafka表引擎的声明方式如下
+ENGINE = Kafka()
+SETTINGS
+    kafka_broker_list = 'host:port,...',
+    kafka_topic_list = 'topic1,topic2,...',
+    kafka_group_name = 'group_name',
+    kafka_format = 'data_format'[,]
+    [kafka_row_delimiter = 'delimiter_symbol']
+    [kafka_schema = '']
+    [kafka_num_consumers = N]
+    [kafka_skip_broken_message = N]
+    [kafka_commit_every_batch = N]
+kafka_broker_list: 表示Broker服务的地址列表，多个地址之间使用逗号分隔，例如'hdp1.nauu.com:6667,hdp2.nauu.com"6667'
+kafka_topic_list: 表示订阅消息主题的名称列表，多个主题之间使用逗号分隔，例如'topic1,topic2'。多个主题中的数据均会被消费
+kafka_group_name: 表示消费组的名称，表引擎会依据此名称创建Kafka的消费组
+kafka_format: 表示用于解析消息的数据格式，在消息的发送端，必须按照此格式发送消息。数据格式必须是Clickhouse提供的格式之一，例如TSV、JSONEachRow和CSV等
+kafka_row_delimiter: 表示判定一行数据的结束符，默认值为'\0'
+kafka_schema: 对应kafka的schema参数
+kafka_num_consumers: 表示消费者的数量，默认值为1。表引擎会依据此消息在消费组中开启相应数量的消费者线程。在Kafka的主题中，一个Partition分区只能使用一个消费者。
+kafka_skip_broken_message: 当表引擎按照预定格式解析数据出现错误时，允许跳过失败的数据行数，默认值为0，即不允许任何格式错误的情形发生。在此种情形下，只要Kafka主题中存在无法解析的数据，数据表都将不会接收任何数据。如果将其值设置为非0正整数，例如 kafka_skip_broken_message=10，表示只要Kafka主题中存在无法解析的数据的总数小于10，数据表就能正常接收消息数据，而解析错误的数据会被自动跳过。
+kafka_commit_every_batch: 表示执行Kafka commit的频率，默认值为0，即当一整个Block数据块完全写入数据表后才执行Kafka commit。如果将其设置为1，则每写完一个Batch批次的数据就会执行一次Kafka commit（一次Block写入操作，由多次Batch写入操作组成）
+除此之外，还有一些配置参数可以调整表引擎的行为。默认情况下，Kafka表引擎每隔500毫秒会拉取一次数据，时间由stream_poll_timeout_ms参数控制（默认500毫秒）。数据首先会被放入缓存，在时机成熟的时候，缓存数据会被刷新到数据表
+触发Kafka表引擎刷新缓存的条件有两个，当满足其中任意一个时，便会触发刷新
+-当一个数据块完成写入的时候（一个数据块的大小由kafka_max_block_size参数控制，默认情况下kafka_max_block_size = max_block_size = 65536）
+-等待间隔超过7500毫秒，由stream_flush_interval_ms参数控制（默认7500ms）
+Kafka表引擎底层负责与Kafka通信的部分，是基于librdkafka实现的，这是一个C++库，地址为https://github.com/edenhill/librdkafka。默认情况下，它每次只会读取Kafka主题中最新的数据（auto.offset.reset=largest），如果将其改为 earlies 后，数据将会从头读取。更多自定义参数在 http://github.com/edenhill/librdkafka/blob/master/CONFIGURATION.md
+在Clickhouse的全局设置中，提供了一组Kafka标签，专门用于定义librdkafka的自定义参数。不过需要注意的是，librdkafka的原生参数使用了点连接符，在Clickhouse中需要将其改为下划线的形式
+<kafka>
+    <auto_offset_reset>smallest</auto_offset_reset>
+</kafka>
+在Kafka中创建主题
+# ./kafka-topics.sh --create --zookeeper hdp1.nauu.com:2181 --replication-flactor 1 --partitions 1 --topic sales-queue
+Created topic "sales-queue"
+发送测试消息
+./kafka-console-producer.sh --broker-list hdp1.nauu.com:6667 --topic sales-queue
+{"id":1, "code":"code1", "name":"name1"}
+{"id":2, "code":"code2", "name":"name2"}
+{"id":3, "code":"code3", "name":"name3"}
+验证测试消息是否发送成功
+./kafka-console-consumer.sh --bootstrap-server hdp1.nauu.com:6667 --topic sales-queue --from-beginning
+{"id":1, "code":"code1", "name":"name1"}
+{"id":2, "code":"code2", "name":"name2"}
+{"id":3, "code":"code3", "name":"name3"}
+在clickhouse中创建表，并订,阅sales-queue的消息主题，且消费组的名称为chgroup，消息格式采用JSONEachRow。之后查询这张表就能看到Kafka的数据了。
+CREATE TABLE kafka_queue(
+    id UInt32,
+    code String,
+    name String
+) ENGINE = Kafka()
+SETTINGS
+    kafka_broker_list = 'hdp1.nauu.com:6667',
+    kafka_topic_list = 'sales-queue',
+    kafka_group_name = 'chgroup',
+    kafka_format = 'JSONEachRow',
+    kafka_skip_broken_messages = 100
+注意：kafka表引擎在执行查询之后就会删除表内的数据，因此再次执行会发现数据空空如也。可以使用物化视图，将kafka表的数据同步到另一张表，以避免数据被清空
+拓扑分为三类角色
+-首先是Kafka数据表A，它充当的角色是一条数据管道，负责拉取Kafka中的数据
+-接着是另外一张任意表引擎但数据表B，它充当的角色是面向终端用户的查询表，在生产环境中通常是MergeTree系列
+-最后，是一张物化视图C，它负责将表A的数据实时同步到表B
+新建一张面向终端用户的查询表
+CREATE TABLE kafka_table(
+    id UInt32,
+    code String,
+    name String
+) ENGINE = MergeTree()
+ORDER BY id
+CREATE MATERIALIZED VIEW consumer TO kafka_table
+AS SELECT id, code, name FROM kafka_queue
+至此，就可以向Kafka主题发送消息，通过kafka_table表进行数据查询了
+如果要停止数据同步，可以删除视图 DROP TABLE consumer，或将其卸载 DETACH TABLE consumer
+在卸载视图之后，如果想要再次恢复，可以使用装载命令
+ATTACH MATERIALIZED VIEW consumer TO kafka_table(
+    id UInt32,
+    code String,
+    name String
+) AS SELECT id, code, name FROM kafka_queue
+(5)File：File表引擎能够直接读取本地文件的数据，也被用于clickhouse-local工具
+ENGINE = File(format)
+format 表示文件中的数据格式，其类型必须是Clickhouse支持的数据格式，例如TSV、CSV和JSONEachRow。File表引擎的定义参数中，并没有包含文件路径这一项。所以，File表引擎的数据文件只能保存在config,xml配置中由path指定的路径下。
+每张File数据表均由目录和文件组成，其中目录以表的名称命名，而数据文件则固定以data.foramt命名，例如：<ch-path>/data/default/test_file_table/data.CSV
+创建File表目录和文件的方式有自动和手动两种。
+【自动的方式】由File表引擎全权负责表目录和数据文件的创建
+CREATE TABLE file_table(
+    name String,
+    value UInt32
+) ENGINE = File("CSV")
+执行完上面的语句后，在 <ch-path>/data/default 路径下便会创建一个名为 file_table 的目录。此时在该目录下还没有数据文件，接着写入数据
+INSERT INTO file_table VALUES ('one',1),('two',2),('three',3)
+在数据写入之后， file_table 目录下便会生成一个名为 data.CSV 的数据文件，可以看到数据已经被写入文件中了
+【手动创建】表目录和数据文件由Clickhouse之外的其他系统创建，例如使用shell创建
+//切换到clickhouse用户，以确保clickHouse有权限读取目录和文件
+# su clickhouse
+//创建目录
+# mkdir /chbase/data/default/file_table1
+//创建数据文件
+mv /chbase/data/default/file_table/data.CSV /chbase/data/default/file_table1
+在目录和文件准备妥当之后，挂载这张数据表
+ATTACH TABLE file_table1(
+    name String,
+    value UInt32
+) ENGINE = File(CSV)
+
+2.内存系列的表引擎，能够充当数据分发的临时存储载体或消息通道(除了Memory表引擎之外，其余几款都会将数据写入磁盘)
+(1)Memory：直接将数据保存在内存中，数据既不会被压缩也不会被格式转换，数据在内存中保存的形态与查询时看到的如出一辙。正因如此，ClickHouse服务重启时，Memory表内的数据会全部丢失。由于不需要磁盘读取、序列化以及反序列等操作，所以Memory表引擎支持并行查询，并且在简单的查询场景中能够达到与MergeTree旗鼓相当的查询性能（一亿行数据量以内）
+Memory表广泛但用在Clickhouse内部，它会作为集群间分发数据的存储载体来使用。例如，在分布式IN查询的场合中，会利用Memory临时表保存IN子句的查询结果，并通过网络将它传输到远端节点。
+(2)Set: 拥有物理存储，数据首先会被写至内存，然后被同步到磁盘文件中。所以当服务器重启时，它的数据不会丢失，当数据表被重新装载时，文件数据会再次被全量加载至内存中。Set表引擎具有去重功能，Set结构中的所有元素都是唯一的。在数据写入的过程中，重复的数据会被自动忽略。Set表引擎虽然支持正常的INSERT写入，但并不能直接使用SELECT对其进行查询，Set表引擎只能间接作为IN查询的右侧条件被查询使用。
+Set表引擎的存储结构由两部分组成
+[num].bin：保存了所有列字段的数据。其中，num是一个自增的id，从1开始。伴随着每一批数据的写入（每一次INSERT），都会生成一个新的.bin文件，num也会随之加1
+tmp临时目录：数据文件首先会被写到这个目录，当一批数据写入完毕之后，数据文件会被移出此目录。
+CREATE TABLE set_1(
+  id UInt8,
+) ENGINE = Set()
+INSERT INTO TABLE set_1 SELECT number FROM numbers(10)
+SELECT arrayJoin([1,2,3]) AS a WHERE a IN set_1 
+arrayJoin 会把数组中的N个元素展开为N列
+(3)Join: 它等同于将JOIN查询进行了一层简单封装。在Join表引擎的底层实现中，于Set表引擎共用了大部分的处理逻辑。例如，Join表引擎的存储也由[num].bin数据文件和tmp临时目录两部分组成；数据首先会被写至内存，然后被同步到磁盘文件。但相比Set表引擎，Join表引擎既能作为JOIN查询的连接表，也能够被直接查询使用。
+ENGINE = Join(join_strictness, join_type, key1[,key2,...])
+join_strictness: 连接精度，它决定了JOIN查询在连接数据时所使用的策略，目前支持ALL、ANY 和 ASOF 三种类型
+join_type:连接类型，它决定了JOIN查询组合左右两个数据集合的策略，它们所形成的结果是交集、并集、笛卡尔积或其他形式，目前支持INNER、OUTER和CROSS三种类型。当join_type被设置为ANY时，在数据写入时，join_key重复的数据会被自动忽略。
+join_key: 连接键，它决定了使用哪个列字段进行关联。
+CREATE TABLE join_tb1(
+    id UInt8,
+    name String,
+    time Datetime
+) ENGINE = Log
+CREATE TABLE id_join_tb1(
+    id UInt8
+    price UInt32,
+    time Datetime
+) ENGINE = Join(ANY, LEFT, id)
+SELECT id,name,price FROM join_tb1 LEFT_JOIN id_join_tb1 USING(id)
+SELECT joinGet('id_join_tb1', 'price', toUInt8(1))
+(4)Buffer：完全使用内存装载数据，不支持文件的持久化存储，所以当服务器重启之后，表内的数据会被清空。Buffer表引擎的作用时充当缓冲区的角色。假设有这样一种场景，我们要将数据写入目标MergeeTree表A，由于写入的并发数很高，这可能会导致MergeTree表A的合并速度慢于写入速度（因为每一次INSERT都会生成一个新的分区目录）此时，可以引入Buffer表来缓解这类问题，将Buffer表作为数据写入的缓冲区。数据首先被写入Buffer表，当满足预设条件时，Buffer表会自动将数据刷新到目标表。
+ENGINE = Buffer(database, table, num_layers, min_time, max_time, min_rows, max_rows, min_bytes, max_bytes)
+database: 目标表的数据库
+table: 目标表的名称，Buffer表内的数据会自动刷新到目标表
+num_layers：可以理解成线程数，Buffer表会按照 num_layers 的数量开启线程，以并行的方式将数据刷新到目标表，官方建议设为16
+Buffer表并不是实时刷新到目标表，只有在阈值条件满足时它才会刷新。阈值条件由三组最小和最大值组成。
+min_time和max_time：时间条件的最小和最大值，单位为秒，从第一次向表内写入数据的时候开始计算
+min_row和max_rows：数据行条件的最小和最大值
+min_bytes和max_bytes：数据体量条件的最小
+需要注意的是，上述三组条件在每一个num_layers中都是单独计算的。
+
+3.日志文件系列的表引擎，拥有简单易用的特点biao
+如果使用的数据量很小（100万以下），面对的数据查询场景也比较简单，并且是“一次”写入多次查询的模式，那么使用日志家族系列的表引擎将会是一种不错的选择。
+日志引擎均不支持索引、分区等高级特性；不支持并发读写，当针对一张日志表写入数据时，针对这张表的查询会被阻塞，直至写入动作结束。同时它们也拥有切实的物理存储，数据会被保存到本地文件中。
+(1)TinyLog：日志家族系列中性能最低的表引擎，存储结构由数据文件和元数据两部分组成。其中，数据文件是按列独立存储的，每一个列字段都拥有一个与之对应的.bin文件。但TinyLog既不支持分区，也没有.mrk标记文件。由于没有标记文件，它自然无法支持.bin文件的并行读取操作，所以它只适合在非常简单的场景下使用。
+CREATE TABLE tinylog_1(
+    id UInt8,
+    code UInt8
+) ENGINE = TinyLog()
+INSERT INTO TABLE tinylog_1 SELECT number,number+1 FROM numbers(10)
+cd /var/lib/clickhouse/data/test2/tinylog_1; ll -h
+-rw-r----- 1 clickhouse clickhouse   36 Jun 25 03:22 code.bin
+-rw-r----- 1 clickhouse clickhouse   36 Jun 25 03:22 id.bin
+-rw-r----- 1 clickhouse clickhouse   64 Jun 25 03:22 sizes.json
+cat sizes.json
+{"yandex":{"code%2Ebin":{"size":"36"},"id%2Ebin":{"size":"36"}}}
+size存储的是各个列字段文件的大小
+(2)StripeLog：相比TinyLog，拥有更高的查询性能（拥有.mrk标记文件，支持并行查询），同时其使用了更少的文件描述符（所有数据使用同一个文件保存）
+表引擎的存储结构由固定的3个文件组成
+data.bin: 数据文件，所有的列字段使用同一个文件保存，它们的数据都会被写入data.bin
+index.mrk: 数据标记，保存了数据在 data.bin 文件中的位置信息。利用数据标记能够使用多个线程，以并行的方式读取 data.bin 内的压缩数据块，从而提升数据的查询性能
+size.json: 元数据文件，记录了 data.bin 和 index.mrk 大小的信息
+CREATE TABLE stripelog_1(
+    id UInt8,
+    price Float32
+) ENGINE = StripeLog()
+INSERT INTO TABLE stripelog_1 SELECT number, toFloat32(number)/3 FROM numbers(10);
+cd /var/lib/clickhouse/data/test2/stripelog_1; ll -h
+-rw-r----- 1 clickhouse clickhouse  155 Jun 25 07:36 data.bin
+-rw-r----- 1 clickhouse clickhouse   66 Jun 25 07:36 index.mrk
+-rw-r----- 1 clickhouse clickhouse   68 Jun 25 07:36 sizes.json
+cat sizes.json
+{"yandex":{"data%2Ebin":{"size":"155"},"index%2Emrk":{"size":"66"}}}
+(3)Log: 结合了TinyLog 和 StripeLog 的长处，是日志家族系列中性能最高的表引擎。Log表引擎的存储结构由3个部分组成
+[column].bin: 数据文件，数据文件按列独立存储，每一个列字段都拥有一个与之对应的.bin文件
+__marks.mrk: 数据标记，统一保存了数据在各个[column].bin文件中的位置信息。利用数据标记能够使用多个线程，以并行的方式读取.bin内的压缩数据块，从而提升数据查询的性能
+sizes.json: 元数据文件，记录了[column].bin和__marks.mrk大小的信息
+由于拥有数据标记，且各列数据独立存储，所以Log既能够支持并行查询，又能够按列按需读取，而付出的代价仅仅是比StripeLog消耗更多的文件描述符（每个列字段都拥有自己的.bin文件）
+
+4.接口系列的表引擎，能够串联已有的数据表，起到黏合剂的作用
+它们本身并不存储任何数据，而是像黏合剂一样可以整合其他的数据表。在使用这类表引擎的时候，不用担心底层的复杂性，它们就像接口一样，为用户提供了统一的访问界面。
+(1)Merge：在数据仓库的设计中，数据按年分表存储，例如test_table_2018,test_table_2019,test_table_2020。如果需要跨年度查询这些数据，可以使用Merge表引擎
+Merge表引擎就如同一层使用了门面模式的代理，它本身并不存储任何数据，也不支持数据写入。它的作用是负责合并多个查询的结果集。Merge表引擎可以代理查询任意数量的数据表，这些查询会异步且并行执行，并最终合成一个结果集返回
+被代理查询的数据表被要求处于同一个数据库内，且拥有相同的表结构，但是它们可以使用不同的表引擎以及不同的分区定义（对于MergeTree而言）
+ENGINE = Merge(database, table_name) table_name表示数据表的名称，它支持使用正则表达式，例如 ^test表示合并查询所有以test为前缀的数据表
+CREATE TABLE test_table_2018 (
+    id String,
+    create_time DateTime,
+    code String
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(create_time)
+ORDER BY id
+CREATE TABLE test_table_2019 (
+    id String,
+    create_time DateTime,
+    code String
+) ENGONE = Log
+CREATE TABLE test_table_all as test_table_2018 
+ENGINE - Merge(currentDatabase(), '^test_table_')
+SELECT _table, * FROM test_table_all
+_table是虚拟字段，它表示某行数据的来源表
+(2)Dictionary：字典表引擎是数据字典的一层代理封装，它可以取代字典函数，让用户通过数据表查询字典。字典内的数据被加载后，会全部保存到内存中。
+CREATE TABLE tb_test_flat_dict (
+    id UInt64,
+    code String,
+    name String
+)
+Engine = Dictionary(test_flat_dict)
+tb_test_flat_dict等同于数据字典test_flat_dict的代理表，可以直接用SELECT语句对其进行查询
+如果字典的数量很多，逐一为它们创建各自的Dictionary表未免过于繁琐。这时候可以使用Dictionary引擎类型的数据库来解决这个问题
+CREATE DATABASE test_dictionaries ENGINE = Dictionary
+在这个数据库中Clickhouse会自动为每个字典分别创建它们的Dictionary表
+SELECT database,name,engine_full FROM system.tables WHERE database = 'test_dictionaries'
+(3)Distributed：在数据库领域，当面对海量业务数据的时候，一种主流的做法是实施Sharding方案，即将一张数据表横向扩展到多个数据库实例。其中，每个数据库实例称为一个Sharding分片，数据在写入时，需要按照预定的业务规则均匀地写至各个Shard分片，数据在写入时，需要按照预定的业务规则均匀地写入各个Shard分片；而在数据查询时，则需要在每个Shard分片上分别查询，最后归并结果集。
+Distributed表引擎就等同于Sharding方案中的数据库中间件。Distributed表引擎自身不存储任何数据，它能够作为分布式表的一层透明代理，在集群内部自动开展数据的写入分发以及查询路由工作。
+
+5.其他类型
+(1)Live View是一种特殊的视图，它不属于表引擎，但类似事件监听器，能够将一条SQL查询结果作为监控目标，当目标数据增加时，Live View可以及时发出响应
+若要使用Live View，首先需要将 allow_experimental_live_view 参数设置为1，执行下列语句查看
+SELECT name, value FROM system.settings WHERE name LIKE '%live_view%'
+创建一张数据表，作为Live View的监听目标
+CREATE TABLE origin_table1(
+    id UInt64
+) ENGINE = Log
+CREATE LIVE View lv_origin AS SELECT count(*) FROM origin_table1
+执行watch命令以开启监听模式
+WATCH lv_origin
+-- count() ---- _version --
+|        0  |          1  |
+|___________|_____________|
+如此一来，Live View就进入监听模式了。接着再开启另外一个客户端，向origin_table1写入数据
+INSERT INTO TABLE origin_table1 SELECT rand() FROM numbers(5)
+此时再观察Live View，可以看到它作出了实时响应（注意：虚拟字段 _version 伴随着每一次数据的同步，它的位数都会加1）
+(2)Null：表引擎的功能与作用，与Unix系统的空设备 /dev/null 很相似。如果用户向 NUll 表写入数据，系统会正确返回，但是 Null 表会自动忽略数据，永远不会将它们保存。如果用户向 Null 表发起查寻，那么它将返回一张空表。
+在使用物化视图的时候，如果不希望保留源表的数据，那么将源表设置成Null引擎将会是极好的选择。
+CREATE TABLE null_table(
+    id UInt8
+) ENGINE = Null;
+CREATE MATERIALIZED VIEW view_table ENGINE = TinyLog AS SELECT * FROM null_table;
+现在向null_table写入数据 INSERT INTO null_table VALUES (1),(2),(3)，会发现数据被顺利同步到了视图 view_table 中，而源表 null_table 依旧空空如也
+(3)URL: URL表引擎等价于用HTTP客户端，通过HTTP/HTTPS协议，直接访问远端的REST服务。当执行SELECT查询的时候，底层会将其转换为GET请求的远程调用。而执行INSERT查询时，会将其转换为POST请求的远程调用
+ENGINE = URL('url', format)
+url表示远端的服务器地址，而format则是clickhouse支持的数据格式，如TSV、CSV、JSON、JSONEachRow等
+
+总结：
+1.外部存储类型的表引擎与Hive的外挂表很相似，它们只负责元数据管理和数据查询，自身并不负责数据的生成，数据文件直接由外部系统维护。它们可以直接读取HDFS、本地文件、常见关系型数据库和 Kafka 的数据
+2.内存类型的表引擎中的数据是常驻内存的，能够充当数据分发的临时存储载体或消息通道。它们拥有堪比 MergeTree 的查询性能（1亿数据量以内）。其中 Set 和 Join 表引擎拥有物理存储，数据再写入内存的同时也会被刷新到磁盘；而 Memory 和 Buffer 表引擎再服务重启之后，数据便会被清空。数据大于1亿的场景下不建议使用内存类表引擎。
+3.日志类型表引擎拥有简单易用的特点，适用于数据量在100万以下，并且是“一次”写入多次查询的场景。其中TinyLog、StripeLog和Log的性能依次升高。
+4.接口类表引擎自身并不存储任何数据，而是像黏合剂一样可以整合其他的数据表。其中Merge表引擎能够合并查询任意张表结构相同的数据表；Dictionary表引擎能够代理查询数据字典；而Distributed表引擎的作用类似分布式数据库的分表中间件，能够帮助用户简化数据分发和路由工作
+5.Live View是一种特殊的视图，能够对SQL查询进行实时监听；Null表引擎类似于Unix系统的空设备 /dev/null，通常与物化视图搭配使用；而 URL 表引擎类似于 HTTP 客户端，能够代理调用远端的 REST 服务。
+
+
+
+数据查询
+1.在绝大部分场景中，都应该避免使用SELECT *形式来查询数据，因为通配符对于采用列式存储的ClickHouse而言没有任何好处。假如有一张一百个字段的数据表，SELECT一个字段与SELECT *的性能可能会差100倍之多
+2.CH对于SQL语句的解析是大小写敏感的，这意味着SELECT a和SELECT A表示的语义是不同的
+3.FROM子句
+CH支持CTE（Common Table Expression，公共表表达式），以增强查询语句的表达
+  CTE通过WITH子句表示，目前支持以下4种用法
+(1)定义变量
+  SELECT pow(pow(2,2),3) => WITH pow(2,2) AS a SELECT pow(a,3)
+(2)调用函数
+  WITH SUM(data_uncompressed_bytes) AS bytes
+  SELECT database, formatReadableSize(bytes) AS format FROM system.columns
+  GROUP BY database
+  ORDER BY bytes DESC
+(3)定义子查询(该查询语句只能返回一行数据，如果结果集的数据大于一行则会抛出异常)
+  WITH (
+	  SELECT SUM(data_uncompressed_bytes) FROM system.columns
+  ) AS total_bytes
+  SELECT database, (SUM(data_uncompressed_bytes) / total_bytes) * 100 AS database_disk_usage
+  FROM system.columns
+  GROUP BY database
+  ORDER BY database_disk_usage DESC
+(4)在子查询中重复使用WITH
+
+4.FROM子句
+5.SAMPLE子句
+(1)SAMPLE factor
+(2)SAMPLE rows
+(3)SAMPLE factor OFFSET n
+
+
+当同时对多个数组字段进行ARRAY JOIN时，查询的计算逻辑是按行合并而不是产生笛卡尔集
+（如果这几个数组字段的长度不一致，会报Sizes of ARRAY-JOIN-ed arrays do not match错误）。
+因此，同一行数据中的各个数组的长度需要对齐，而多行数据之间的数组长度没有限制。只有被ARRAY JOIN的数组才会展开。
+
+JOIN语法包含连接精度（ALL[默认]/ANY/ASOF）和连接类型（LEFT/RIGHT/FULL [OUTER]外连接；INNER 内连接；CROSS交叉连接）两部分。
+除此之外，JOIN查询还可以根据其执行策略被划分为本地查询和远程查询。
+
+连接精度如果不主动申明，默认是ALL，可以通过join_default_strictness配置参数修改默认的连接精度类型。
+对数据是否连接匹配的判断是通过JOIN KEY进行的，目前只支持等式（EQUAL JOIN）。交叉连接（CROSS JOIN）不需要JOIN KEY，因为它会产生笛卡尔积。
+【书本P184，有错，id=NULL应该改为id=1，且查询结果也有误】
+(1)ALL 如果左表内的一行数据，在右表中有多行数据与之连接匹配，则返回右表中全部连接的数据
+(2)ANY 如果左表内的一行数据，在右表中有多行数据与之连接匹配，则返回右表中的第一行连接的数据
+(3)ASOF 是一种模糊连接，它允许在连接键之后追加定义一个模糊连接的匹配条件asof_column。asof_column必须是整型、浮点型和日期型这类有序序列的数据类型
+ALL和ANY仅支持等式（=）；ASOF支持模糊连接条件（>,<），ASOF不支持等于。INNER JOIN时，ASOF等于ALL+模糊连接条件。
+
+连接类型决定了JOIN查询组合左右两个数据集合要用的策略，它们所形成的结果是交集、并集、笛卡尔集或是其他形式。
+(1)INNER JOIN 表示内连接，在查询时会以左表为基础逐行遍历数据，它会只返回左表与右表两个数据集合中交集的部分
+(2)OUTER JOIN 表示外连接，它可以进一步细分为左外连接（LEFT）、右外连接（RIGHT）和全外连接（FULL）三种
+  2.1)LEFT 在进行左外连接查询时，会以左表为基础逐行遍历数据，然后从右表中找出与左边连接的行以补齐属性。如果在右表中没有找到连接的行，则采取相应字段数据类型的默认值填充
+  2.2)RIGHT 右外连接查询的效果与左连接恰好相反，右表的数据总是能够全部返回，而左表不能连接的数据则使用默认值补全。内部执行逻辑：在内部进行类似INNER JOIN的内连接查询，在计算交集部分的同时，顺带记录右表中那些未能被连接的数据行。将那些未能被连接的数据行追加到交集的尾部。将追加数据中那些属于左表的列字段用默认值补全
+  2.3)FULL 全外连接查询会返回左表与右表两个数据集合的并集。内部执行逻辑：在内部进行类似LEFT JOIN的查询，在左外连接的过程中，顺带记录右表中已经被连接的数据行。通过在右表中记录已被连接的数据行，得到未被连接的数据行。将右表中未被连接的数据追加至结果集，并将那些属于左表中的列字段以默认值补全
+(3)CROSS JOIN 表示交叉连接，它会返回左表与右表两个数据集合的笛卡尔积。CROSS JOIN不需要申明JOIN KEY
+SELECT arrayJoin([1,2,3]) as v1, arrayJoin([4,5,6]) as v2 ORDER BY v1 ASC, v2 DESC;
+上面sql会列出两者的笛卡尔集合
+(4)多表连接 在进行多表连接查询时，ClickHouse会将它们转为两两相连的形式(Clickhouse虽然也支持关联查询的语法，但是会自动将其转换成指定的连接查询)
+  4.1)如果查询中不包含WHERE条件，则会转为CROSS JOIN
+  SELECT a.id,a.name,b.rate,c.star FROM join_tb1 AS a, join_tb2 AS b, join_tb3 AS c
+  4.2)如果查询语句中包含WHRER条件，则会转为INNER JOIN
+  SELECT a.id,a.name,b.rate,c.star FROM join_tb1 AS a, join_tb2 AS b, join_tb3 AS c WHERE a.id = b.id AND a.id = c.id
+
+  
+如果有WHERE子句的话，往往会先生成两个表先JOIN，然后再根据WHERE条件从中选择。
+
+(1)DELETE FROM [db.]table WHERE expr 
+是逐行删除速度极慢，不适合大量数据删除
+(2)TRUNCATE TABLE [db.]table
+删除所有数据，保留表结构，不能撤销还原
+(3)DROP TABLE IF EXISTS [db.]table
+删除表，数据和表结构一起删除，速度最快
+
+
+
+从使用场景来说，Clickhouse是个分析型数据库，这种场景下，数据一般是不变的。因此，Clickhouse对update和delete的支持是比较弱的，实际上并不支持标准的update、delete操作
+Clickhouse通过alter方式实现update和delete，它把update和delete操作叫做mutation(突变)
+ALTER TABLE [db.]table DELETE WHERE filter_expr
+ALTER TABLE [db.]table UPDATE column1 = expr1 [, ...] WHERE filter_expr
+标准SQL的update和delete操作是同步的，即客户端要等服务端返回执行结果（通常是int值）；而Clickhouse的update和delete是通过异步方式实现的，执行后服务端立即返回，但实际上此时数据还没完全改变，可能还在排队等待。可以通过system.mutations表查看是否执行完毕
+SELECT database, table, command, create_time, is_done FROM system.mutations LIMIT 10
+Mutation的执行过程：1.使用WHERE找到需要修改的分区；2.重建每个分区，使用新的分区替换旧的，分区一旦被替换，就不可回退
+对于每个分区，可以认为是原子性的，但对于整个mutation，如果涉及多个分区，则不是原子性的
+注意事项：
+1.更新功能不支持更新主键或分区键
+2.更新操作没有原子性，即在更新过程中去SELECT，结果很可能是一部分变了，一部分没变
+3.更新是按照提交的顺序执行的
+4.更新一旦提交，不能撤销，即是重启clickhouse服务，也会继续按照system.mutations的顺序继续执行
+5.已完成更新的条目不会立即删除，保留条目的数量由replicated_merge_tree_settings.finished_mutations_to_keep(默认100)存储引擎参数确定，超过数据量时旧的条目会被删除，0表示保留所有
+6.更新可能会卡住，比如遇到类型错误的更新语句执行不过去，那么会一直卡在这里。此时，可以用KILL MUTATION来取消
+KILL MUTATION WHERE filter_expr
+
+
+相比使用HAVING，嵌套WHERE的执行计划效率更高。因为WHERE等同于使用了谓词下推（将过滤条件下推到离数据源更近的地方），在聚合之前就进行了数据过滤，从而减少了后续聚合时需要处理的数据量。WHERE的执行优先级大于GROUP BY，所以如果需要按照聚合值进行过滤，就必须借助HAVING实现
+
+在MergeTree表引擎中指定ORDER BY后，数据在各个分区内会按照其定义的规则排序，这是一种分区内的局部排序。如果在查询时数据跨越了多个分区，则它们的返回顺序是无法预知的，每一次查询返回的顺序都可能不同。因此，如果需要数据总是能够按照期望的顺序返回，就需要借助ORDER BY子句来指定全局顺序。
+ORDER BY在使用时可以定义多个排序键，每个排序键后需紧跟ASC（升序）或DESC（降序）来确定排列顺序。若不写，默认ASC（升序）
+(1)ORDER BY column ASC/DESC NULLS LAST  排序顺序为：其他值（value）-> NaN -> NULL
+(2)ORDER BY column ASC/DESC NULLS FIRST 排序顺序为：NULL -> NaN -> 其他值（value）
+
+
+LIMIT BY 运行在ORDER BY之后和LIMIT之前，能够按照指定分组，最多返回前n行数据（如果少于n行，则按实际数量返回），常用于TOP N的场景
+语法：LIMIT n OFFSET y BY express 简写：LIMIT n,offset BY column[, ...]
+
+LIMIT 子句用于返回指定的前n行数据，常用于分页场景
+
+SELECT database,table,MAX(bytes_on_disk) AS bytes FROM system.parts
+GROUP BY database,table ORDER BY bytes DESC
+LIMIT 3 BY database
+LIMIT 10
+上述语句表示，查询返回数据占磁盘空间最大的前3张表，而返回的总数据行等于10
+
+SELECT位于SQL语句的起始位置，但确是最后执行的。SELECT会将选取的字段或表达式作用于每行数据之上。如果使用*通配符，则会返回数据表的所有字段，但不建议这么做，对于一款列式存储的数据库，这绝对是劣势而非优势
+ClickHouse提供了一种基于正则查询的形式。执行下面语句后，查询会返回名称以字母n开头和包含字母p的列字段
+SELECT COLUMNS('^n'), COLUMNS('p') FROM system.databases
+
+DISTINCT子句能够去除重复数据，其执行计划比GROUP BY更简单
+如果使用了LIMIT且没有ORDER BY子句，则DISTINCT在满足条件时能够迅速结束查询，这样可以避免多余的处理逻辑
+当DISTINCT与ORDER BY同时使用时，其执行的优先级是先DISTINCT后ORDER BY
+DISTINCT必须紧跟在SELECT后面（即只能修饰第一个字段）
+SELECT DISTINCT data_path, name FROM system.databases
+
+UNION ALL子句能够联合左右两边的两组子查询，将结果一并返回。在一次查询中，可以声明多次UNION ALL以便联合多组查询。但UNION ALL不能直接使用其他子句（例如ORDER BY、LIMIT等），这些子句只能在它联合的子查询中使用。
+UNION ALL两侧
+SELECT DISTINCT name, v1 FROM (SELECT name,v1 FROM union_v1 UNION ALL SELECT title,v2 FROM union_v2)
+
+
+纵使单节点性能再强，也会有遇到瓶颈的那一天。业务量的持续增长、服务器的意外故障，都是Clickhouse需要面对的洪水猛兽。集群、副本、分片，就是专门用来解决这个问题的
+
+
+管理与运维
+1.用户配置
+我们一直在使用默认的default用户，且采用无密码登录方式，这显然不符合生产环境的要求
+
+
+users.xml修改完后不用重启，立刻即会生效
+clickhouse-client -h <sererIp> -d default -m -u <username> --password <password>
+2.权限管理
+3.熔断机制
+4.数据备份
+5.服务监控
+基于原生功能对Clickhouse进行监控，可以从两方面着手，系统表和查询日志。
+(1)系统表：在众多的SYSTEM系统表中，主要由以下三张表支撑了对Clickhouse运行指标的查询，它们分别是metrics、events和asynchronous_metrics
+【             metrics 】用于统计Clickhouse服务在运行时，当前正在执行的高层次的概要信息，包括正在执行的查询总次数，正在发生的合并操作总次数等
+metric         |value|description                                    |
+---------------|-----|-----------------------------------------------|
+Query          |    1|Number of executing queries                    |
+Merge          |    0|Number of executing background merges          |
+PartMutation   |    0|Number of mutations (ALTER DELETE/UPDATE)      |
+ReplicatedFetch|    0|Number of data parts being fetched from replica|
+ReplicatedSend |    0|Number of data parts being sent to replicas    |
+【              events 】用于统计Clickhouse服务在运行过程中已经执行过的高层次的累积概要信息，包括总的查询次数、总的SELECT查询次数等
+event            |value |
+-----------------|------|
+Query            |170012|
+SelectQuery      | 72796|
+InsertQuery      | 91208|
+FailedQuery      |   546|
+FailedSelectQuery|   344|
+【 asynchronous_metrics 】用于统计Clickhouse服务运行过程时，当前正在后台异步运行的高层次的概要信息，包括当前分配的内存、执行队列中的任务数量等
+metric                                  |value  |
+----------------------------------------|-------|
+CPUFrequencyMHz_7                       | 2200.0|
+CPUFrequencyMHz_5                       | 2200.0|
+CPUFrequencyMHz_4                       | 2200.0|
+CPUFrequencyMHz_3                       | 2200.0|
+CPUFrequencyMHz_2                       | 2200.0|
+jemalloc.arenas.all.pdirty              |10549.0|
+CPUFrequencyMHz_1                       | 2200.0|
+jemalloc.background_thread.run_intervals|    0.0|
+TotalPartsOfMergeTreeTables             |  137.0|
+jemalloc.background_thread.num_runs     |    0.0|
+
+system数据库下的表含义
+1.aggregate_function_combinators  聚合函数名
+2.build_options                   版本、配置信息
+3.data_type_families              数据类型，是否大小写敏感与别名
+4.databases                       数据库存储路径与元信息路径
+5.disks                           磁盘信息（可用空间/总空间）
+6.errors                          错误名称与错误代码
+7.formats                         数据格式化函数
+8.functins                        函数（是否大小写敏感，别名）
+9.merge_tree_settings             混合树引擎配置信息
+10.mutations                      查看异步的update和delete是否完成
+11.parts                          查看分区表及其相关信息
+12.privileges                     执行语句所需权限
+13.query_log                      查询日志
+14.replicated_merge_tree_settings 融合树副本的设置
+15.settings                       CH的设置
+16.table_engines                  支持的表引擎
+17.table_functions                表函数
+18.tables                         表名，位置，大小
+19.time_zones                     时区
+
+(2)查询日志：查询日志目前主要有5种类型，它们分别从不同角度记录了Clickhouse的操作行为。所有查询日志在默认配置下都是关闭状态，需要在config.xml配置中打开
+【书本P267有误，日志只有5类】
+【query_log，       默认启用】是最常用的查询日志，它记录了Clickhouse服务中所有已经执行的查询记录
+    <query_log>
+        <database>system</database>
+        <table>query_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <ttl>event_date + INTERVAL 30 DAY DELETE</ttl>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_log>
+【query_thread_log，默认启用】记录了所有线程的执行查询的信息
+    <query_thread_log>
+        <database>system</database>
+        <table>query_thread_log</table>
+        <partition_by>toYYYYMM(event_date)</partition_by>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </query_thread_log>
+
+【part_log                】记录了MergeTree系列表引擎的分区操作日志
+    <part_log>
+        <database>system</database>
+        <table>part_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+    </part_log>
+【text_log                】记录了Clickhouse运行过程中产生的一系列打印日志，包括INFO、DEBUG和Trace
+    <text_log>
+        <database>system</database>
+        <table>text_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <level></level>
+    </text_log>
+【metric_log，      默认启用】用于将system.metrics和system.events中的数据汇聚到一起
+    <metric_log>
+        <database>system</database>
+        <table>metric_log</table>
+        <flush_interval_milliseconds>7500</flush_interval_milliseconds>
+        <collect_interval_milliseconds>1000</collect_interval_milliseconds>
+    </metric_log>
+
+
+修改system.settings，直接用 SET allow_experimental_window_functions = 1; 会报错
+解决办法：修改 /etc/clickhouse-server/users.xml，修改后不用重启即可立即生效
+<yandex>
+  <profiles>
+    <default>
+      <allow_experimental_window_functions>1</allow_experimental_window_functions>
+    </default>
+  </profiles>
+</yandex>
+
+限制单条查询最多占用多少内存(这个例子是10GB)；可以改为随机加载，防止同时触发占用太多CPU和内存
+<yandex>
+  <profiles>
+    <default>
+      <load_balancing>random</load_balancing>
+      <max_memory_usage>10000000000</max_memory_usage>
+    </default>
+  </profiles>
+</yandex>
+
+
+
+
+
+深圳城市轨道交通研究规划中心——数据架构师——张景远——35岁
+
+九栖科技，做电信人物画像，最大表，单日，入库接近20T，14台CK服务器，89台CDH集群。
+实效性，要看逻辑了。用sparkstream当数据峰值来时，确实有延迟，而且还不小，改为flink后，就好很多。所以后面项目基本用flink + mpp了
+
+mpp（Massively Parallel Processing，海量并行处理）
+MPP架构是将任务并行的分散到多个服务器和节点上，在每个节点上计算完成后，将各自部分的结果汇总在一起得到最终的结果。采用MPP架构的数据库称为MPP数据库。
+
+电信的数据是从通讯机站通过数据过来，峰值，具体从kafka监控器里查看，高的每秒百兆，sparkstream处理最开始延迟是比较大的，接近分钟级别。其实可以通过扩展服务器来减少延迟，但是资源总是有限的
+
+Flink有背压原理，对延迟表现的很好，我们定的是15s以内，这个可以根据资源来调节
+Clickhouse属于大数据范围，生产的划分给生产组运维，测试的是我们组负责的
+
+逻辑不复杂，十多亿条数据，注意优化，完全可以在3s内返回，更别说5000万了。
+但是增改，这个就比较特殊了，要会知道使用什么引擎
+任何机械都不省功，同样任何计算都不省资源，clickhouse如果什么都可以，那其他数据库软件就都淘汰了
+clickhouse是缩小并发，提高计算，每次计算都会把所有资源都用上，所以并发是它的弱点
+
+单次修改在10万行的处理方式：1.使用复制树引擎，用聚合函数 2.内存一定要大，不开启压缩、落盘，将数据在内存中计算。3台高性能服务器就够了。内存最好128g以上，我们这边用的是256g，cpu32核以上，我们这边用的是64核。要3台是为了搭建高可用集群，硬盘以规划最大数据量的3倍
+
+clickhouse是异步删除，但是你要求实时查询，原理就是在ck没有完成删除，更改之前，屏蔽旧的数据，显示新的数据。这是ck实现实时更新，删除，最新用法。
+实际olap基本都很难做到查询快的同时改快，他用查询去代替更新的思路去解决这个问题
+而flink的内存表，又有另一种单方法处理这些问题，都很巧妙的解决了olap不适合实时更改单的问题
+
+
+位图函数（类似hashset）
+https://blog.csdn.net/cloudbigdata/article/details/108606507
+https://juejin.cn/post/6844903769201704973
+https://www.sohu.com/a/434152235_411876
+
+想做营销活动，如何找到目标人群及用户特征？人群的筛选通常离不开用户画像。用户画像就是根据用户特征、业务场景和用户行为等信息，构建一个标签化的用户模型。
+比如消费者用户画像分为属性和行为标签两类。这两类标签，一个是固定的，一个是可变的。固定的属性标签基本就是买家的性别，年龄段，会员等级，消费水平，购买力等。而可变的行为标签基本包括买家的浏览，加购物车，购买等行为。
+
+标签数据表：相对于 ElasticSearch 的用户画像表的存储结构，将标签存储做了一个行转列存储。每个标签对应一个 Bitmap 对象（存储了用户的唯一编号）
+
+-- bitmap
+Bitmap 对象有两种构建方式，一种是从聚合函数 groupBitmap 构建，另一种是从 Array 对象构建，也可以将 Bitmap 对象转换为 Array 对象。
+
+CREATE TABLE testbit(
+    label String,
+    name String,
+    uv AggregateFunction(groupBitmap,UInt64) comment 'bitmap存储用户'
+)ENGINE = AggregatingMergeTree()
+PARTITION BY label
+ORDER BY (label,name);
+SETTINGS index_granularity = 128;
+
+-- 从无符号整型（UInt8、UInt32、UInt64等）array构造bitmap,(AggregateFunction类型，用来存储Bitmap,bitmap类似set不能存储重复元素)
+SELECT bitmapBuild([1,2,3,4,5]) AS res, toTypeName(res) AS type;
+-- 将bitmap转成整型array，Array(UInt8)，bitmap类似set不能存储重复元素
+SELECT bitmapToArray(bitmapBuild([1,2,3,4,5])) AS res, toTypeName(res) AS type;
+SELECT bitmapToArray(bitmapBuild([1,1,2,2,3,3])) AS res, toTypeName(res) AS type;
+-- bitmapSubsetInRange(bitmap, range_start, range_end),返回值在range_start到range_end区间内（不包含renge_end）的bitmap子集
+SELECT bitmapToArray(bitmapSubsetInRange(bitmapBuild([1,2,3,30,21,22,23,50,41,42,43,60,51,52,53]),30,60)) AS res;
+--bitmapSubsetLimit(bitmap, range_start, cardinality_limit)，返回bitmap中，从range_start开始的cardinality_limit个元素组成的子集bitmap对象
+SELECT bitmapToArray(bitmapSubsetLimit(bitmapBuild([1,2,3,30,21,22,23,50,41,42,43,60,51,52,53]),30,4)) AS res;
+--bitmapContains(bitmap, e),判断指定bitmap中是否存在e元素
+SELECT bitmapContains(bitmapBuild([1,2,3,4,5]), toUInt32(3)) AS res, toTypeName(res) AS type;
+--bitmapHasAny(bitmap1, bitmap2),bitmap1中是否包含bitmap2中的元素，只要有一个相同的元素，就返回1，否则返回0.
+SELECT bitmapHasAny(bitmapBuild([1,2,3]),bitmapBuild([3,4,5])) AS res, toTypeName(res) AS type;
+--bitmapHasAll(bitmap,bitmap),bitmap1中是否全部包含bitmap2中的元素，全部包含就返回1，否则返回0.
+SELECT bitmapHasAll(bitmapBuild([1,2,3]),bitmapBuild([3,2])) AS res, toTypeName(res) AS type;
+-- bitmapCardinality返回集合的基数（元素个数）
+SELECT bitmapCardinality(bitmapBuild([1, 2, 3, 14, 15])) AS res, toTypeName(res) AS type;
+-- 提取最小值
+SELECT bitmapMin(bitmapBuild([1, 2, 3, 4, 5])) AS res, toTypeName(res) AS type;
+-- 提取最大值
+SELECT bitmapMax(bitmapBuild([1, 2, 3, 4, 5])) AS res, toTypeName(res) AS type;
+-- bitmapTransform(bitmap, from_array, to_array)，将bitmap中的元素进行转换，将存在于from_array的元素，一次转换成to_array的对应元素
+SELECT bitmapToArray(bitmapTransform(bitmapBuild([1, 2, 3, 4, 5, 6, 7, 8, 9, 10]), cast([5,999,2] as Array(UInt8)), cast([25,299,22] as Array(UInt8)))) AS res
+-- And 取交集
+SELECT bitmapToArray(bitmapAnd(bitmapBuild([1,2,3,4]),bitmapBuild([3,4,5]))) AS res;
+-- Or 取并集
+SELECT bitmapToArray(bitmapOr(bitmapBuild([1,2,3,4]),bitmapBuild([3,4,5]))) AS res;
+-- Xor 补集
+SELECT bitmapToArray(bitmapXor(bitmapBuild([1,2,3,4]),bitmapBuild([3,4,5]))) AS res;
+-- Andnot A集合减去交集
+SELECT bitmapToArray(bitmapAndnot(bitmapBuild([1,2,3,4]),bitmapBuild([3,4,5]))) AS res;
+
+ 
+Bit函数，结果类型是一个整数，其位数等于其参数的最大位。如果至少有一个参数为有符数字，则结果为有符数字。如果参数是浮点数，则将其强制转换为Int64。
+bitAnd(a,b)
+bitOr(a,b)
+bitXor(a,b)
+bitNot(a)
+bitShiftLeft(a,b)
+bitShiftRight(a,b)
+bitRotateLeft(a,b)
+bitRotateRight(a,b)
+bitTest(number, index)
+bitTestAll(number, index1, index2, index3)
+bitTestAny(number, index1, index2, index3)
+bitCount(x)
+bitHammingDistance(int1,int2)，汉明距离等于ａXORｂ中１的数目，我们又称其为汉明权重
+
+
+Oracle的物化视图
+物化视图是一种特殊的物理表，“物化”(Materialized)视图是相对普通视图而言的。普通视图是虚拟表，应用的局限性大，任何对视图的查寻，实际上都是转换为视图SQL语句的查寻。
+物化视图是包括一个查寻结果的数据库对象，它是远程数据的本地副本，或者用来生成基于数据表求和的汇总表。物化视图存储基于远程表的数据，也可以称为快照。物化视图从某种意义上说就是一个物理表，可以被user_tables查出来。物化视图也是一种段（segment），所以有自己的物理存储属性。物化视图会占用数据库的磁盘空间，这点从user_segment的查寻结果，可以得到佐证。
+根据刷新方式，分为两类：ON DEMAND，仅在需要被刷新时，才进行刷新；ON COMMIT，一旦基表有了COMMIT，即事务提交，则立刻刷新物化视图
+Oracle提供了两种方式，手工刷新和自动刷新，默认为手工刷新。即我们手工执行某个Oracle提供的系统级存储过程的包，来保证物化视图与基表数据的一致性。自动刷新，其实也就是Oracle会建立一个job，通过这个job来调用相同的存储过程或包，加以实现
+创建：CREATE MATERIALIZED VIEW mv_name AS SELECT * FROM table_name 默认情况下，如果没指定刷新方法和刷新模式，则Oracle默认为FORCE和DEMAND
+指定刷新时间：ALTER MATERIALIZED VIEW mv_name REFRESH FORCE ON DEMAND START WITH sysdate NEXT to_date(concat(to_char(sysdate+1, 'dd-mm-yyy'), '22:00:00'), 'dd-mm-yyyy hh24:mi:ss')
+删除：DROP MATERIALIZED view mv_name
+
+物化视图本质就像insert语句的触发器；如果有什么集合的运算，他会应用于最新插入的数据当中；对于其他原表的变化，比如说，更新，删除，删除分区，都不会影响到物化视图的变化
+物化视图是对于流数据的处理，单条数据就是一个值，通过这个值进行累加，而不是对于离线数据的整体处理后所得到的值；
+
+
+JDBC后面的数据库，只能修改查询时的默认数据库，DDL语句（建表，修改）仍需要指定数据库，否则会使用default？
+
+
+
+1. Prometheus + clickhouse_exporter + Grafana 实现ClickHouse监控
+2. 备份与恢复
+3. 搜集常见的异常问题，及解决方案
+4. 实验MaterializeMySQL引擎（基于MySQL Binlog机制，自动将MySQL数据实时同步到Clickhouse）
+
+https://www.cnblogs.com/qiu-hua/p/15114297.html
+
+
+8核 Intel(R) Xeon(R) Gold 6161 CPU @ 2.20GHz
+16G内存
+
+Clickhouse对CPU要求较高，有多少吃多少，其次是内存，然后是硬盘
+
+查询分为两种
+1.数据存在于内存（一般出现在短期内第二次查询该表）
+查询在单个服务器上大约能以2-10GB/s（未压缩）的速度处理
+2.数据存在硬盘中
+取决于磁盘的速度和数据的压缩率，一般在1GB/s左右
+
+查询的速度取决于：查询的列数，数据的行数
+
+写入速度在50-200MB/s
+
+
+ClickHouse性能情况以及相关优化
+https://zhuanlan.zhihu.com/p/349105024
+
+电子书
+https://www.bookstack.cn/read/clickhouse-20.8-zh/354bee3057739527.md
+
+从一个服务器导入4T数据到另外一个服务器
+https://blog.csdn.net/zhangpeterx/article/details/96494877
+（1）CSV
+select * from test.app INTO OUTFILE '/data2/data.csv' FORMAT CSVWithNames;
+cat data.csv | clickhouse-client --query="INSERT INTO test.app FORMAT CSVWithNames"  --password=
+（2）远程服务器
+insert into test.app VALUES
+select * from remote('127.0.0.1:9000', test, app);
+（3）管道
+clickhouse-client --host <source>   -q "SELECT * FROM test.app FORMAT CSVWithNames" | \
+clickhouse-client --host <target> --port 9000  -q "INSERT INTO test.app FORMAT CSVWithNames"=
+
+
+mybatis+clickhouse
+https://juejin.cn/post/6896274290226790407
+
+单节点部署多实例
+https://blog.csdn.net/qq_40341628/article/details/115351998
+
+
+clickHouse-server默认日志路径：/var/log/clickhouse-server
+如果你在 clickhouse-server 没有找到任何有用的信息或根本没有任何日志，您可以使用命令查看 system.d :
+journalctl -u clickhouse-server
+
+https://www.gbase8.cn/category/clickhouse/page/3
+
+开窗函数
+https://vkingnew.blog.csdn.net/article/details/113750525
+
+时间函数
+https://vkingnew.blog.csdn.net/article/details/107227037
+
+备份还原
+Clickhouse v21.10 release版本中已经能够使用 BACKUP/RESTORE 来实现一键备份与还原
+CREATE TABLE test(
+  id UInt64,
+  value String,
+  date DateTime
+) ENGINE = MergeTree()
+ORDER BY id
+PARTITION BY toYYYYMM(date)
+1.执行BACKUP备份命令
+BACKUP TABLE test TO backup_test
+执行BACKUP后，会在/var/lib/clickhouse/data/backups/<备份名>目录下，将原表的元数据(metadata)以及数据(data)全都复制到了这里
+2.执行RESTORE还原命令
+RESTORE TABLE test FROM backup_test
+会发现所有数据都被重新写入了一次
+把原表删除后再还原。然后再次查询表，可以看到表的元数据和数据都恢复了
+DROP TABLE test
+RESTORE TABLE test FROM backup_test
+3.该特性不支持Distributed分布式表，也不支持Replicated复制表
+
+
+重命名表
+clickhouse-client --query="RENAME TABLE `test.goods` TO `test.goods2`;"
+
+
+clickhouse-backup
+https://segmentfault.com/a/1190000038604737
+wget https://github.com/AlexAkulov/clickhouse-backup/releases/download/v1.3.1/clickhouse-backup-1.3.1-1.x86_64.rpm
+rpm -ivh clickhouse-backup-1.3.1-1.x86_64.rpm
+安装后即可直接使用 clickhouse-backup命令(备份的目录在 /var/lib/clickhouse/backup)
+1.查看可备份的表
+clickhouse-backup tables
+2.备份多个表
+clickhouse-backup create  -t mydb.table1, mydb.table2
+3.全库备份
+clickhouse-backup create
+4.查看备份文件
+clickhouse-backup list
+5.还原
+clickhouse-backup restore <备份名>
+
+
+实用工具
+1.clickhouse-benchmark是基准测试的小工具，可以自动运行SQL查询，并生成相应的指标报告
+echo "SELECT * FROM system.numbers LIMIT 100" | clickhouse-benchmark -i 5
+2.如果要执行多行的SQL语句，可以将其定义在文件中
+clickhouse-benchmark -i 5 < ./multi-sqls
+3.核心参数
+-i --iterations: SQL查询执行的次数，默认值是0
+-c --concurrency: 同时执行查询的并发数，默认值是1
+-r --randomize：执行多条SQL语句的时候，按照随机顺序执行
+clickhouse-benchmark -r 1 -i 5 < ./multi-sqls
+例如
+[root@starrocks3 ~]# echo 'SELECT count(*) FROM numbers(10)' | /usr/bin/clickhouse-benchmark -c 10 -i 10        
+Loaded 1 queries.
+Queries executed: 10.
+localhost:9000, queries 10, QPS: 612.782, RPS: 6127.820, MiB/s: 0.047, result RPS: 612.782, result MiB/s: 0.005.
+0.000%          0.016 sec.
+10.000%         0.016 sec.
+20.000%         0.016 sec.
+30.000%         0.016 sec.
+40.000%         0.016 sec.
+50.000%         0.016 sec.
+60.000%         0.016 sec.
+70.000%         0.016 sec.
+80.000%         0.016 sec.
+90.000%         0.016 sec.
+95.000%         0.016 sec.
+99.000%         0.016 sec.
+99.900%         0.016 sec.
+99.990%         0.016 sec.
+[root@starrocks3 ~]# echo 'SELECT count(*) FROM numbers(10)' | /usr/bin/clickhouse-benchmark -c 1 -i 10 
+Loaded 1 queries.
+Queries executed: 10.
+localhost:9000, queries 10, QPS: 482.194, RPS: 4821.941, MiB/s: 0.037, result RPS: 482.194, result MiB/s: 0.004.
+0.000%          0.001 sec.
+10.000%         0.001 sec.
+20.000%         0.001 sec.
+30.000%         0.001 sec.
+40.000%         0.001 sec.
+50.000%         0.001 sec.
+60.000%         0.001 sec.
+70.000%         0.001 sec.
+80.000%         0.001 sec.
+90.000%         0.001 sec.
+95.000%         0.015 sec.
+99.000%         0.015 sec.
+99.900%         0.015 sec.
+99.990%         0.015 sec.
+
+
+ReplicaingMergeTree
+虽然MergeTree拥有主键，但是它的主键却没有唯一键的约束，这意味着即便
+
+
+卸载与装载分区
+表分区可以通过DETACH语句卸载，分区被卸载后，它的物理数据并没有删除，而是被转移到了当前数据表目录的detached子目录下。而装载分区则是反向操作，它能够将detached子目录的某个分区重新装载回去。
+
+
+通过引入数据副本，虽然能够有效降低数据的丢失风险（多份存储），并提升查询的性能（分摊查询、读写分离），但仍然有一个问题没有解决，那就是数据表的容量问题。每个副本自身仍然保存了数据表的全量数据。所以在业务量十分庞大的场景中，依靠副本并不能解决单表的性能瓶颈。要想从根本上解决这个问题，就需要将数据水平切分，也就是所谓的数据分片
+
+join
+https://zhuanlan.zhihu.com/p/377506070
+ClickHouse 单机JOIN操作默认采用HASH JOIN算法，可选MERGE JOIN算法。其中，MERGE JOIN算法数据会溢出到磁盘，性能相比前者较差
+ClickHouse 的 HASH JOIN算法实现比较简单：
+1.从right_table 读取该表全量数据，在内存中构建HASH MAP；
+2.从left_table 分批读取数据，根据JOIN KEY到HASH MAP中进行查找，如果命中，则该数据作为JOIN的输出；
+从这个实现中可以看出，如果right_table的数据量超过单机可用内存空间的限制，则JOIN操作无法完成。通常，两表JOIN时，将较小表作为right_table.
+
+分布式JOIN实现机制无非如下几种：
+1.Broadcast Join
+如果右表是分布式表，则在每个节点都执行一次分布式查询（会查询全量的数据，然后再做投影），最后将汇总的数据发给查询节点
+2.Shuffle Join
+如果右表是分布式表，在查询节点分布式查询SELECT所需的投影字段和JOIN KEY字段，然后保存为临时表（内存表），将然后广播至每个节点，join后汇总
+3.Colocate Join（数据预分布）
+当JOIN涉及的表数据量都非常大时，读放大，或网络广播都带来巨大性能损失。
+且如果右表为分布式表，则集群中每个节点会去执行分布式查询。这里就会存在一个非常严重的"读放大"现象。假设集群有N个节点，右表查询会在集群中执行N*N次。
+因此，我们可以根据"相同JOIN KEY必定相同分片"原理，将涉及JOIN计算的表，按JOIN KEY在集群维度作分片。将分布式JOIN转为节点的本地的JOIN，从而极大的减少了查询放大的问题
+
+ClickHouse普通分布式JOIN查询是一个简单版的Shuffle JOIN的实现，或者说是一个不完整的实现。不完整的地方在于，并未按JOIN KEY去Shuffle数据，而是每个节点全量拉去右表数据
+GLOBAL IN 修饰后，会将子查询在初始执行节点进行查询汇总，存储为临时表，并在SQL分发时携带该临时表数据到各个节点进行查询，最终汇总结果到初始查询节点。
+在使用GLOBAL关键字时，虽然最大限度的降低了查询放大，但是如果数据量过大，产生的临时表就会很大，也会受到网络稳定性和网络带宽的限制。ck在做JOIN时都是采用发送右表，所以ck在做分布式IN/JOIN时的效率不太好
+
+Join性能
+在执行JOIN时，ClickHouse对执行的顺序没有特别优化，JOIN操作会在WHERE以及聚合查询前运行。
+JOIN操作结果不会缓存，所以每次JOIN操作都会生成一个全新的执行计划。如果应用程序会大量使用JOIN，则需进一步考虑借助上层应用侧的缓存服务或使用JOIN表引擎来改善性能（JOIN表引擎不支持ASOF精度）。JOIN表引擎会在内存中保存JOIN结果。
+在某些情况下，IN的效率比JOIN要高
+在使用JOIN连接维度表时，JOIN操作可能并不会特别高效，因为右侧表对于每个query来说，都需要加载一次。在这种情况下，外部分字典（external dictionaries）的功能会比JOIN性能更好
+
+QPS、TPS、RPS
+1.QPS (Queries Per Second, 每秒查询率)
+一台服务器每秒能处理的查询次数，是对一个特定的查询服务器在规定时间内所处理流量多少的衡量标准
+2.TPS (Transactions Per Second, 每秒事务数)
+它是软件测试结果的测量单位。一个事务指的是一个客户机向服务器发送请求，然后服务器做出反应的过程。客户机在发送请求时开始计时，收到服务器响应后结束计时，以此来计算使用的时间和完成的事务个数
+一个TPS包括：用户请求服务器；服务器内部处理；服务器返回给用户。每秒能够完成N个这三个过程，Tps也就是N
+QPS与TPS的区别：一次页面请求(TPS)，可能产生多次对服务器的请求(QPS)
+3.RPS (Requests Per Second, 每秒能处理的请求条目)
+
+
+使用prewhere优化，首先只读取执行prewhere表达式所需的列。 然后读取运行其余查询所需的其他列，但只读取prewhere表达式所在的那些块 “true” 至少对于一些行。 
+如果有很多块，其中prewhere表达式是 “false” 对于所有行和prewhere需要比查询的其他部分更少的列，这通常允许从磁盘读取更少的数据以执行查询。
+clickhouse会自动把where改为prewhere
+
+
+ClickHouse执行 "多分片聚合" 比 单机 慢
+https://blog.csdn.net/u014377853/article/details/108771894
+用explain和trace级别日志两种查看执行过程的方法
+clickhouse-client -h localhost --port 9000 --multiquery --send_logs_level=trace  <<< "SELECT AVG(age) FROM test.goods WHERE day = 10 GROUP BY year, month;" > /dev/null
+clickhouse-client -h localhost --port 9000 --multiquery --send_logs_level=trace < test.sql > /dev/null
+
+P3定义
+1.深入学习数据库原理
+2.熟悉日常运维以及优化
+3.能指导开发优化SQL
+
+考核指标——KPI
+1.指导开发性能调优至少三次，提升至少30%性能
+2.一亿数据量，20列，随机查询100行左右数据，1.5s内响应
+3.数据不丢失，故障恢复率在2小时以内，可用性达99%
+
+
+
+Year.Major.Minor.patch
+Year.Major.1.patch 1 表示测试版，大于1表示稳定版本。有重大的更新和新特性主要在Minor为2的版本。
+
+

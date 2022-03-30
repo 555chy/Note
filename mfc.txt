@@ -1,0 +1,267 @@
+VC++调用DLL中的函数
+1.装载DLL
+HMODULE   LoadLibrary(
+    LPCTSTR   lpFileName
+);
+2.获得所需函数
+FARPROC   GetProcAddress(
+    HMODULE   hModule,
+    LPCSTR   lpProcName
+);
+3.释放DLL
+BOOL   FreeLibrary(
+    HMODULE   hModule
+); 
+
+
+
+C++中有两种类型的容器：顺序容器和关联容器
+https://blog.csdn.net/iwilldoitx/article/details/80309680
+1.顺序容器：vector, list, deque
+vector表示一段连续的内存，基于数组实现；
+list表示非连续的内存，基于链表实现；
+deque与vector类似，但是对首元素提供插入和删除的双向支持
+2.关联容器：map, set
+map是key-value形式；set是单值。map和set只能存放唯一key
+multimap和multiset可以存放多个相同的key
+容器类自动申请和释放内存，因此无需new和delete操作
+
+
+UNICODE, _UNICODE, __TEXT, __TEXT, __T, _T 宏的区别
+https://www.cnblogs.com/ini_always/archive/2011/05/20/2050517.html
+1.早期美国人只要ASCII
+char    ——> char    *str = "china"
+2.为了兼容其他国语言新增了Unicode
+#define unsigned short wchar_t
+wchar_t ——> wchar_t *str = L"中国"
+3.为了在ASCII和Unicode之间切换，因此有了TCHAR
+
+头文件（##起连接作用，UNICODE宏用于Windows头文件，而_UNICODE宏用于C运行时和MFC的头文件）
+1.WinNT.h
+```
+#ifdef UNICODE
+#define __TEXT(quote) L##quote
+#else
+#define __TEXT(quote) quote
+#endif
+#define TEXT(quote)   __TEXT(quote)
+```
+2.tchar.h
+```
+#ifdef _UNICODE
+#define __T(x)   L ## x
+#else
+#define __T(x)   x
+#endif
+#define _T(x)    __T(x)
+#define _TEXT(x) __T(x)
+```
+3.atldef.h和afxv_w32.h（确保UNICODE和_UNICODE这两个宏要么都定义了，要么都未定义）
+```
+#ifdef _UNICODE
+#ifndef UNICODE
+#define UNICODE
+#endif
+#endif
+#ifdef UNICODE
+#ifndef _UNICODE
+#define _UNICODE
+#endif
+#endif
+```
+
+C++与VC++的区别
+C++是在C语言的基础上加入了“类”的概念以及“对象”的概念，所以C++是面向对象的编程语言。
+而VC++是在C++的基础上加入了对windows可视化（窗口化以及控件）操作的支持，所以它也是面向对象的编程语言，是一种协助用户使用c++语言设计软件的工具。
+CString属于VC++的类库(MFC)
+string是标准C++的类库
+string.h是C的库函数
+
+
+string和cstirng都是对char*的扩展
+```(1)String ——> CString
+cstring.format("%s", string.c_str())
+```
+```(2)CString ——> String
+string s(cstring.getbuffer())
+或
+cstring cstr; string str = cstr;
+```
+```(3)String ——> char*
+string.c_str();
+```
+```(4)CString ——> char*
+cstring.getbuffer()
+或
+//LPCTSTR 就是 const char , 是常量字符串（不能修改的）；而LPTSTR就是char , 即普通字符串（非常量，可修改的）。
+(LPCTSTR)cstring
+```
+
+
+CString和wchar_t *的相互转化
+```(1)wchar_t —> CString
+wchar_t *OptionText；
+CString cstring(OptionText); 
+```
+```(2)CString —> wchar_t
+OptionText=cstring.AllocSysString();
+```
+
+
+char,wchar_t,TCHAR的区别
+一个是美国用的（American），一个是通用的（Universal）,TCHAR是两种都兼容的
+者通常对应的字符串处理函数的头文件分别为str***,wcs***,_tcs***
+Wide Character String
+
+MBCS(Multi-Byte Chactacter System，即多字节字符系统)
+```(1)TCHAR赋值
+#include<tchar.h>
+TCHAR szWindowText[256]=_T("China");
+```
+```(2)CString2TCHAR
+TCHAR* CString2TCHAR(CString %str) {
+  int iLen = str.GetLength();
+  TCHAR* szRs = new TCHAR[iLen]
+  lstrcpy(szRs, str.GetBuffer(iLen));
+  str.RealeaseBuffer();
+  return szRs;
+}
+```
+```(3)TCHAR2char
+char* TCHAR2char(TCHAR* tcharStr) {
+  int iLen = 2*wcslen(tcharStr);
+  char* ch = new char[iLen + 1];
+  wcstombs(ch,tcharStr,iLen+1);
+  return ch;
+}
+```
+```(4)CString2char1
+char* CPublic::CString2char(CString &str) {   
+  int len = str.GetLength();   
+  char* chRtn = (char*)malloc((len*2+1)*sizeof(char));//CString的长度中汉字算一个长度   
+  memset(chRtn, 0, 2*len+1);   
+  USES_CONVERSION;   
+  strcpy((LPSTR)chRtn,OLE2A(str.LockBuffer()));   
+  return chRtn;   
+}   
+```
+```(4)CString2char2
+char* CString2char2(const CString &s) {   
+  int nSize = 2*s.GetLength();   
+  char *pAnsiString = new char[nSize+1];   
+  wcstombs(pAnsiString, s, nSize+1);   
+  return pAnsiString;   
+}   
+```
+函数wcstombs(char* strDes, const wchar*, size_t nMax);
+这个函数的作用是把wchar转换为char。
+char* strDes 为保存转换后的普通字符串，wchar* 要被转换的宽字符串。
+转换的最大长度。这里的长度是转换的个数，而不是字节长度。
+这个函数的作用是把wchar转换为char，mbstowcs() 就是一个相反的过程了。
+
+
+
+Handle 是代表系统的内核对象，如文件句柄，线程句柄，进程句柄。
+HMODULE 是代表应用程序载入的模块，win32系统下通常是被载入模块的线性地址。
+HINSTANCE 在win32下与HMODULE是相同的东西
+dword全称Double Word，每个word为2个字节的长度，是指计算机中数值的位数(4字节，32位，int32)
+
+C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Include\Psapi.h
+C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\Psapi.Lib
+C:\Program Files (x86)\Microsoft SDKs\Windows\v7.1A\Lib\x64\Psapi.Lib
+C:\Windows\System32\psapi.dll 
+‪C:\Windows\SysWOW64\psapi.dll
+
+
+strcpy_s必须完全拷贝源串，若只想拷贝一部分源串则应该用strncpy_s函数（最后一个参数表示仅拷贝最后几个字符）
+
+
+BOOL CWnd::ShowWindow( int nCmdShow );
+其中nCmdShow常用值有：
+SW_HIDE：     隐藏窗口
+SW_SHOW：     激活并以当前的大小在当前位置显示窗口
+SW_SHOWMAXIMIZED：    最大化窗口
+SW_SHOWMINIMIZED：    最小化窗口
+SW_SHOWNORMAL：     激活并显示窗口，如果窗口处于最大化或最小化的状态时，将其恢复到原始窗口状态
+
+
+extern "C"的真实目的是实现类C和C++的混合编程。在C++源文件中的语句前面加上extern "C"，表明它按照类C的编译和连接规约来编译和连接，而不是C++的编译的连接规约。
+
+
+Dependency walker
+https://bygeek.cn/2018/07/05/simple-user-guide-to-dependency-walker/
+Dependency walker是一个可以用来查看windows上可执行文件依赖库的工具。可以用来分析库的装载相关的错误
+1.左侧：依赖的dll列表（Module Dependency Tree View）可以在菜单栏选择显示绝对路径
+2.右侧最上：选中的dll中，实际被父模块调用的函数
+绿C:     Resolved C import 
+绿C++:   Resolved C++ import. C++ functions can be viewed in their native decorated form or in a human readable undecorated form.
+绿O#:    Resolved ordinal import
+绿C*:    Resolved dynamic C import(similar images also exist for C++ and ordinal functions). The parent module of this module called the GetProcAddress function to dynamically get the address of this function. This does not necessarily mean the parent module actually used the function address to call the function.
+红C:     Unresolved C function(similar images also exist for C++ and ordinal functions). This function is called by the parent module, but it is not exported from the current module. This is often referred to as an "unresolved external function". If this module is an implicit or forwarded dependency, then the parent module will fail to load. If this module is a delay-load dependency, then the parent module will most likely recover from the miss dependency, as that is a feature of using delay-load dependencies.
+红C*:    Unresolved dynamic C function(similar images also exist for C++ and ordinal functions). The parent module of this module called the GetProcAddress function to dynamically get the address of this function, but the current module does not export the function. This is not necessarily an error since one of the reasons modules call GetProcAddress is to see if a function exists in a module.
+3.右侧中部：选中的dll中，export function列表，可以右键选择undecoreated c++ function，这样显示的函数名称就是人类可读的没有被编译器处理的函数名了
+灰C:     C export function that resides in the selected module
+灰C++:   C++ export function that resides in the selected module. C++ functions can be viewed in their native decorated from or in a human readable undecorated form.
+灰O#:    Ordinal export function that resides in the selected module
+蓝*C:    C export function that is called at least once by any module in the current module session(similar images also exist for C++ and ordinal functions)
+灰C箭头: Forwarded C export function that resides in a different module(similar images also exist for C++ and ordinal functions). The module that the function truly resides in is listed in the Entry Point column.
+
+
+使用dumpbin查看dll中的函数签名
+https://blog.csdn.net/fengbingchun/article/details/43956673
+位置：C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.31.31103\bin\Hostx64\x86
+命令：dumpbin /EXPORTS C:\<DLL文件路径>
+
+
+extern "C" 说明导出函数使用C编译器，则函数名遵循C编译器的函数名修饰规则，不加extern "C"说明使用C++编译器的函数名修饰 规则，两种规则区别如下：
+（1）C编译器的函数名修饰规则 
+对于__stdcall调用约定，编译器和链接器会在输出函数名前加上一个下划线前缀，函数名后面加上一个“@”符号和其参数的字节数。
+例如 _functionname@number。__cdecl调用约定仅在输出函数名前加上一个下划线前缀，例如_functionname。__fastcall调用约定在输出函数名前加上一个“@”符号，后面也是一个“@”符号和其参数的字节数，例如@functionname@number
+（2）C++编译器的函数名修饰规则
+C++的函数名修饰规则有些复杂，但是信息更充分，通过分析修饰名不仅能够知道函数的调用方式，返回值类型，甚至参数个数、参数类  型。不管__cdecl，__fastcall还是__stdcall调用方式，函数修饰都是以一个“?”开始，后面紧跟函数的名字，再后面是参数表的开始标识 和按照参数类型代号拼出的参数表。对于__stdcall方式，参数表的开始标识是“@@YG”，对于__cdecl方式则是“@@YA”，对于__fastcall方式则是“@@YI”。
+         
+测试导出函数
+extern "C" {
+	__declspec(dllexport) int add(int a, int b);
+	int subtract(int a, int b);
+}
+__declspec(dllexport) int multiply(int a, int b);
+int divide(int a, int b);
+上面4个函数
+(1)dumpbin和dependency Walker，都只能看到有__declspec(dllexport)备注的函数
+(2)GetProcAddress，参数传函数名，只能拿到有extern "C"的函数
+(3)C++的导出格式包含的信息更多，因此函数名是一个复杂的编码，例如"?Multiply@@YAHHH@Z"，全部传给GetProcAddress即可调用
+
+
+C++动态库(DLL)导出函数名修饰规则
+https://blog.csdn.net/tiandyoin/article/details/81937941
+(1)__stdcall 
+1.以？标识函数名的开始，后跟函数名
+2.函数名后面以@@YG标识参数表的开始，后面跟参数表
+3.参数表以代号表示：
+  X void
+  D char
+  E unsigned char*
+  F short
+  H int
+  I unsigned int
+  J long
+  K unsigned long
+  M float
+  N double
+ _N bool
+ PA 表示指针，后面的代号表明指针类型，如果相同类型的指针连续出现，以0代替，一个0表示一次重复
+4.
+5.
+(2)__cdecl调用，只是将参数表开始的标识，由@@YG改为@@YA
+(3)__fastcall调用，只是将参数表开始的标识符，由@@YG改为@@YI
+
+
+函数调用约定
+https://blog.csdn.net/galaft/article/details/2118561?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1.pc_relevant_default&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1.pc_relevant_default&utm_relevant_index=2
+调用约定    入栈参数清理  参数入栈顺序 
+_cdecl      调用者手动    右->左
+_stdcall    函数自动      右->左
+_fastcall   函数自动      依赖于编译器
+pascal      函数自动      左->右
+

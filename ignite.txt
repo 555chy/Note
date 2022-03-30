@@ -1,0 +1,309 @@
+一、第一次的报告（对ignite做了sql的各项速度测试）
+
+1. 6列数据的情况
+	1*10000 行
+		create  45ms
+		insert  250ms
+		query   74ms
+		update  450ms
+		count   3ms
+		groupHalf       15ms
+		group   11ms
+		order   68ms
+		delete  142ms
+		insert  330ms
+		drop    28ms
+	5*10000 行	
+		create  31ms
+		insert  844ms
+		query   178ms
+		update  1332ms
+		count   2ms
+		groupHalf       28ms
+		group   29ms
+		order   170ms
+		delete  557ms
+		insert  840ms
+		drop    33ms
+	10*10000 行	
+		create  42ms
+		insert  1688ms
+		query   313ms
+		update  2743ms
+		count   3ms
+		groupHalf       57ms
+		group   52ms
+		order   401ms
+		delete  1099ms
+		insert  1664ms
+		drop    49ms
+	50*10000 行
+		create  32ms
+		insert  7796ms
+		query   1466ms
+		update  13194ms
+		count   3ms
+		groupHalf       218ms
+		group   219ms
+		order   1945ms
+		delete  6278ms
+		insert  8007ms
+		drop    197ms
+	100*10000 行
+		create  43ms
+		insert  15695ms
+		query   2806ms
+		update  25713ms
+		count   4ms
+		groupHalf       464ms
+		group   419ms
+		order   3900ms
+		delete  12597ms
+		insert  15822ms
+		drop    401ms
+	500*10000 行
+		create  36ms
+		insert  75691ms
+		query   13910ms
+		update  132292ms
+		count   11ms
+		groupHalf       2017ms
+		group   1991ms
+		order   21060ms
+		delete  66321ms
+		insert  78117ms
+		drop    2537ms
+	
+	
+数据量（6列）create insert query update count groupHalf group  order delete drop
+  1w	       45    250    74    450     3        15    11     68    142   28
+  5w	       31    844   178   1332     2        28    29    170    557   33
+ 10w	       42   1688   313   2742     3        57    52    410   1099   49
+ 50w	       42   7796  1466   1466    11       218   219   1945   6278  197
+100w	       43  15695  2806   2806     4       464   419   3900  12597  401
+500w	       36  75691 13910 132292    11      2017  1991  21060  66321 2537
+
+		
+结论
+1.create和count不受数据量影响
+2.insert	 5w*6/s
+3.query	30w*6/s
+4.update	 3w*6/s（更新耗时约等于插入的1.5倍）
+5.group        300w*6/s（筛选一般的数据拿来分组和直接分组无明显效率提升）
+6.order	20w*6/s（使用带索引的列排序耗时约等于查询的1.5倍）
+7.delete	10w*6/s
+		
+
+
+
+
+二、第二次的报告（禁用持久化后，探究"集群"及"jdbc与ignite是否同台设备" 对各项性能的影响）
+
+测试SQL语句
+
+CREATE TABLE IF NOT EXISTS PersonBean (
+id LONG PRIMARY KEY,
+uuid varchar,
+isMale bit(1),
+isMarried bit(1),
+name varchar,
+age int,
+height float,
+weight int,
+phoneNum varchar,
+province varchar,
+hobby varchar,
+hobbyCount int,
+wages float,
+school varchar,
+website varchar,
+father varchar,
+mother varchar,
+district varchar,
+updateDate date,
+updateTime time,
+updateTimestamp timestamp,
+index idx(uuid,age,height,weight,hobbyCount,wages,updateDate,updateTime,updateTimestamp)
+)
+
+INSERT INTO PersonBean (id,uuid,isMale,isMarried,name,age,height,weight,phoneNum,province,hobby,hobbyCount,wages,school,website,father,mother,district,updateDate,updateTime,updateTimestamp) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+
+SELECT * FROM PersonBean
+
+SELECT * FROM PersonBean WHERE age < 10 LIMIT 0,1000
+
+UPDATE PersonBean SET isMale=?,name=?,age=?,phoneNum=?,province=? WHERE id=?
+
+SELECT COUNT(*) FROM PersonBean
+
+SELECT province,COUNT(*) FROM PersonBean GROUP BY province
+
+SELECT province,COUNT(*) FROM PersonBean WHERE age < 10 GROUP BY province
+
+SELECT SUM(weight) AS total FROM PersonBean
+
+SELECT SUM(weight) AS total FROM PersonBean WHERE age < 10
+
+SELECT * FROM PersonBean ORDER BY height
+
+SELECT * FROM PersonBean WHERE age < 10 ORDER BY height
+
+SELECT * FROM PersonBean WHERE age < 10 ORDER BY height LIMIT 0,1000
+
+DELETE FROM PersonBean
+
+DROP TABLE IF EXISTS PersonBean
+
+
+测试 20 列数据, 每 100 行批量上传一次, 配置 ignite 单台最大内存 5G（纯内存测试数据，不开启持久化），快照如下：
+Topology snapshot [ver=13, locNode=9ce0a80b, servers=3, clients=0, state=ACTIVE, CPUs=14, offheap=15.0GB, heap=6.4GB]
+2020-09-23 [10:51:03]   ^-- Baseline [id=0, size=3, online=3, offline=0]
+
+ignite局域网集群，jdbc连本机（16G）
+      rows    create    insert     query    update     count groupHalf     group       sum       sum     order    delete    insert      drop
+      rows    create    insert     query    update     count groupHalf     group       sum       sum     order    delete    insert      drop
+       100     137ms     113ms      25ms     254ms       9ms      11ms      10ms       9ms       9ms      15ms      68ms      63ms      57ms
+     1,000      93ms     764ms      55ms     824ms       8ms      10ms       5ms       5ms       5ms      35ms     665ms     661ms      44ms
+    10,000      94ms   7,378ms     204ms   7,515ms      13ms      26ms      36ms      20ms       7ms     275ms   6,922ms   7,827ms      88ms
+   100,000     129ms  77,122ms   1,817ms  87,180ms      12ms      69ms      75ms      30ms      47ms   2,341ms  60,922ms  80,000ms     164ms
+    
+ignite局域网集群，jdbc连其他主机（8G）
+      rows    create    insert     query    update     count groupHalf     group       sum       sum     order    delete    insert      drop
+         1     106ms      21ms      10ms       5ms       5ms       5ms       6ms       7ms       5ms       8ms       6ms       3ms      87ms
+        10     126ms      24ms       9ms      12ms       6ms       6ms       5ms       4ms       5ms       8ms       9ms      12ms      97ms
+       100     130ms      76ms      18ms      77ms       5ms       6ms       5ms       5ms       5ms      15ms      49ms      58ms      74ms
+     1,000     104ms     606ms     133ms     711ms      10ms      10ms       9ms       9ms       8ms      88ms     449ms     629ms      70ms
+    10,000     109ms   6,772ms     266ms   8,051ms       6ms      10ms      10ms       8ms       7ms     346ms   5,301ms   7,467ms      78ms
+   100,000      92ms  73,497ms   1,944ms  75,586ms       4ms      45ms      36ms      50ms      37ms   2,689ms  54,078ms  71,045ms     131ms
+
+jdbc连本机ignite(16G，无集群）
+      rows    create    insert     query    update     count groupHalf     group       sum       sum     order    delete    insert      drop
+         1      21ms       5ms       4ms       2ms       2ms       3ms       2ms       3ms       2ms       3ms       1ms       1ms       7ms
+        10      22ms       7ms       4ms       4ms       2ms       3ms       2ms       1ms       1ms       3ms       1ms       4ms      14ms
+       100      20ms      32ms      11ms       9ms       3ms       4ms       4ms       3ms       2ms       5ms       2ms      13ms       6ms
+     1,000      20ms      90ms      56ms      49ms       2ms       6ms       3ms       2ms       7ms      25ms      22ms      64ms       7ms
+    10,000      21ms     476ms     225ms     161ms       1ms       7ms      10ms       6ms       7ms     147ms      96ms     322ms      12ms
+   100,000      17ms   3,453ms   1,297ms   1,401ms       2ms      58ms      65ms      59ms      56ms   1,342ms   1,275ms   3,142ms      53ms
+   
+ 1,000,000      18ms  30,829ms  14,441ms  12,831ms       4ms     626ms     643ms     574ms     598ms  16,663ms  14,347ms  30,646ms     709ms
+ 3,000,000      23ms  92,605ms  45,738ms  39,827ms       5ms   1,600ms   1,653ms   1,366ms   1,563ms  50,660ms  42,488ms  95,429ms   1,750ms
+   
+jdbc连局域网其他主机上的ignite(8G，无集群）
+      rows    create    insert     query    update     count groupHalf     group       sum       sum     order    delete    insert      drop
+         1     207ms      82ms      38ms      19ms      17ms      11ms       8ms      10ms      11ms      23ms      11ms       8ms      49ms
+        10      87ms      26ms      15ms      24ms      10ms      13ms      11ms       9ms       7ms      24ms      11ms      38ms      28ms
+       100      69ms     177ms      43ms     102ms       5ms      11ms       7ms       5ms       5ms      19ms      27ms     138ms      18ms
+     1,000     124ms     495ms     135ms     363ms       5ms       7ms       5ms       5ms       4ms      55ms      80ms     136ms      18ms
+    10,000      64ms   1,164ms     510ms     485ms       3ms      12ms      11ms       8ms       8ms     425ms     130ms   1,184ms      19ms
+   100,000      64ms  12,040ms   4,264ms   4,520ms       6ms      73ms      47ms      40ms      42ms   4,323ms     785ms  13,006ms     100ms
+   
+ 1,000,000      58ms 140,226ms  52,059ms  49,994ms       8ms     427ms     439ms     366ms     382ms  44,312ms   9,809ms 131,879ms     372ms
+ 3,000,000（8G内存 OOM）
+ 
+jdbc华为云（114.115.160.23）单台ignite（16g，最大内存配置为14g，无集群）
+密码：ignite   eL2GxunN8bPQN!13
+test 20 columns, update 5 columns, batchCount 100, limit 1000, use index false
+       rows     create     insert      query queryLimit update1000      count      group groupWhere        sum   sumWhere      order orderWhere orderLimit     delete       drop
+         10      158ms      135ms      188ms      181ms      679ms      134ms      178ms      177ms      178ms      176ms      181ms      178ms      178ms       91ms      104ms
+        100      156ms      149ms    1,091ms      185ms      543ms      132ms      178ms      179ms      180ms      175ms      359ms      177ms      178ms       89ms      100ms
+      1,000      141ms      701ms    2,627ms      456ms      534ms      133ms      215ms      184ms      181ms      177ms    2,897ms      692ms    1,244ms       98ms      104ms
+     10,000      143ms    5,636ms   36,510ms    3,925ms      551ms      135ms      186ms      183ms      182ms      183ms   31,812ms    2,681ms    4,223ms      205ms      102ms
+    100,000      151ms   54,629ms  384,626ms    1,129ms      521ms      131ms      257ms      231ms      248ms      237ms  315,361ms   32,744ms    2,970ms    1,188ms      103ms
+
+   
+上面都是无索引的情况，下面在华为云上创建索引
+test 20 columns, update 5 columns, batchCount 100, limit 1000, use index true
+       rows     create     insert      query queryLimit update1000      count      group groupWhere        sum   sumWhere      order orderWhere orderLimit     delete       drop
+         10      243ms      128ms      165ms      166ms      885ms      116ms      154ms      154ms      155ms      153ms      158ms      156ms      155ms       78ms       89ms
+        100      190ms      152ms      441ms      156ms      467ms      116ms      153ms      156ms      153ms      154ms      347ms      155ms      154ms       82ms       89ms
+      1,000      173ms      646ms    5,934ms      610ms      473ms      114ms      156ms      153ms      153ms      153ms    3,926ms      496ms      421ms      166ms       87ms
+     10,000      190ms    5,395ms   22,081ms    2,711ms      464ms      115ms      160ms      153ms      183ms      153ms   24,566ms    1,696ms    2,361ms      662ms       88ms
+    100,000      147ms   55,160ms  250,684ms    2,839ms      581ms      119ms      239ms      182ms      231ms      168ms  232,898ms   26,941ms    2,377ms    6,411ms       86ms
+  1,000,000      174ms  650,756ms  453,024ms      529ms      903ms      153ms      901ms      310ms      939ms      296ms  454,357ms   45,891ms    1,152ms   78,070ms      109ms
+
+
+结论
+1.普通笔记本16g内存，剩余10g无法承载千万条数据的操作
+2.JDBC连接本机效率最高（省了网络延迟，弊端是共用内存会影响spring的正常运行）
+3.单机的各项速度完爆集群，集群的优势在更多的内存总和可以承载更大的数据量
+
+
+
+三、第三次的报告（在确认内存充足的情况下，开启持久化，筛选更贴近真实的sql情况，探究优化方案）
+
+16G总内存，可用14G，之前最大内存配置为13G，到最后delete之后ignite节点会down掉
+Nodes started on local machine require more than 80% of physical RAM what can lead to significant slowdown due to swapping (please decrease JVM heap size, data region size or checkpoint buffer size) [required=18991MB, available=15886MB]
+mem   checkPoint    xms   xmx  maxMetaspaceSize
+7g       1g        1g     2g        1g
+
+jdbc连华为云（无索引表）
+持久化开启，配置最大内存改为10G，华为云内存总共减少8G，网络速度550K/s，where筛选1/10数据，limit限制条数1000
+   test 20 columns, update 5 columns, batchCount 100, limit 1000, use index false
+         rows       create       insert    query1000     distinct   update1000        count        group   groupWhere          sum     sumWhere   orderWhere    order1000       delete         drop
+           10        280ms        166ms        208ms        164ms        724ms        121ms        156ms        156ms        158ms        158ms        164ms        158ms         87ms        254ms
+          100        199ms        242ms        165ms        156ms        538ms        117ms        158ms        156ms        155ms        155ms        161ms        158ms        116ms        457ms
+        1,000        170ms      1,175ms        261ms        159ms        490ms        116ms        160ms        159ms        158ms        157ms        364ms        930ms        204ms      3,201ms
+       10,000        196ms      5,505ms        706ms        164ms        476ms        115ms        170ms        164ms        169ms        167ms        458ms        409ms        300ms      3,472ms
+      100,000        175ms     50,185ms     12,574ms        262ms        694ms        117ms        260ms        240ms        243ms        255ms     13,583ms        719ms      1,904ms      3,686ms
+    1,000,000        153ms    498,713ms     51,375ms      1,092ms        462ms        120ms      1,318ms      1,021ms      1,057ms      1,032ms     63,257ms      1,833ms     25,195ms      5,631ms
+   10,000,000        153ms  4,946,302ms    421,522ms      8,896ms        460ms        160ms     10,678ms      9,041ms      9,254ms      8,985ms    422,339ms     17,174ms    747,452ms      5,629ms
+ 
+jdbc连华为云（带索引表）
+test 20 columns, update 5 columns, batchCount 100, limit 1000, use index true, sync to disk 60s, max thread 50
+         rows       create       insert    query1000     distinct   update1000        count        group   groupWhere          sum     sumWhere   orderWhere    order1000       delete         drop
+           10        221ms        104ms        160ms        155ms        619ms        116ms        154ms        152ms        152ms        152ms        162ms        154ms         97ms        173ms
+          100        232ms        226ms        158ms        153ms        484ms        115ms        153ms        153ms        152ms        152ms        156ms        155ms        117ms        481ms
+        1,000        186ms        948ms        202ms        152ms        466ms        114ms        156ms        153ms        155ms        152ms        197ms        195ms        277ms      3,303ms
+       10,000        181ms      5,685ms        455ms        155ms        462ms        115ms        173ms        157ms        165ms        154ms        328ms        475ms        810ms      3,460ms
+      100,000        178ms     52,351ms      3,687ms        166ms        454ms        114ms        265ms        167ms        263ms        164ms      3,285ms        521ms      7,766ms      3,881ms
+    1,000,000        175ms    535,143ms     37,782ms        300ms        451ms        117ms      1,140ms        297ms      1,273ms        278ms     37,471ms      1,236ms     89,327ms      9,383ms
+   10,000,000        207ms  6,661,101ms    389,468ms      1,630ms        442ms        160ms     10,905ms      1,646ms     11,124ms      1,486ms    393,050ms      7,211ms    935,450ms      9,981ms
+     
+jdbc本机单机
+test 20 columns, update 5 columns, batchCount 100, limit 1000, use index true, sync to disk 60s
+         rows       create       insert    query1000     distinct   update1000        count        group   groupWhere          sum     sumWhere   orderWhere    order1000       delete         drop
+           10        510ms        159ms         48ms         15ms        392ms         10ms          7ms          5ms          5ms          5ms          9ms         10ms         29ms         49ms
+          100        204ms        208ms         17ms          8ms        339ms         13ms         19ms         11ms         15ms          6ms         28ms         11ms        168ms         42ms
+        1,000        180ms        741ms         51ms          9ms        220ms         14ms         20ms         10ms         14ms         12ms         36ms         43ms        668ms         28ms
+       10,000        154ms      2,205ms         87ms         11ms         92ms          3ms         31ms          8ms         20ms          7ms         72ms         35ms        945ms         24ms
+      100,000         89ms      7,462ms        182ms         15ms         48ms          3ms         86ms         21ms         91ms         12ms        214ms         87ms      5,826ms         13ms
+    1,000,000        118ms     64,558ms      1,411ms         97ms         44ms          6ms        735ms         95ms        603ms         82ms      1,258ms        507ms     70,850ms         19ms
+
+ 
+ 
+结论
+1.1w行以上，所需的时间呈线性递增
+2.索引能够大大提高查询、分组、排序等的速度
+3.筛选和限制条数，可以节省大量的时间，将时间压缩在1秒内
+4.如果gdbc与ignite配置在同一台主机，可以省去较大的网络延迟
+
+
+
+四、第四次的报告（聚合函数）
+
+jdbc连华为云（join测试）    
+1kw行Person表A（大表），1k行Score表B（小表）的join操作（order by PersonBean.age）
+test 20 columns, update 5 columns, batchCount 100, limit 1000, use index true, sync to disk 60s
+  innerAB      innerAB1000 innerAB1000Order          innerBA      innerBA1000   innerBA1000Order        rightJoin        right1000   right1000Order     leftJoin     left1000   innerAB1000Order
+ 18,115ms         17,816ms         17,850ms            372ms            371ms           17,898ms            367ms            371ms         17,740ms        OOM        3,274ms          17,819ms
+
+
+
+
+
+
+结论
+1.join左侧小表能提升效率，加limit也可以提高速度
+
+
+RDBMS一般指关系数据库管理系统。关系数据库管理系统（Relational Database Management System：RDBMS）是指包括相互联系的逻辑组织和存取这些数据的一套程序 (数据库管理系统软件)。关系数据库管理系统就是管理关系数据库，并将数据逻辑组织的系统。 
+
+
+通过实现CacheStore接口，可以将Ignite与任何NoSQL数据库集成。
+虽然Ignite支持分布式事务，但是并不会使NoSQL数据库具有事务性，除非数据库本身直接支持事务
+
+
+
+
+ 
+

@@ -1,0 +1,25 @@
+1. 验证数据正确性，分析大于2秒的性能
+OFFSET not allowed in LIMIT without ORDER BY。凡是有limit，必须加order by
+大于2秒的操作有 insert, select orderby（limit可以大大减少select的时间，但limit必须配合order使用）
+多次执行同一查询语句，效率基本相当
+
+2. 分析数据库语法支持程度
+支持boolean, string, byte, short, int, long, float, double, Timestamp
+不支持 byte[]， decimal
+不支持 create index，支持存储过程(但语句未知)
+要用limit，必须加order by
+变量名里result、data、year、month、count都是关键词不能用（加前导下划线也不行）
+
+
+存储过程、视图、触发器
+索引
+执行过程的消耗
+内存和硬盘的数据怎么做到一致
+插入数据的时候如何同步数据库
+多链接，多用户同时执行的隔离机制
+集群解决性能问题
+大量操作后是否会影响性能
+做第三方数据库的缓存，当作运算数据库，另外还有个存储数据库
+内存压缩机制
+
+

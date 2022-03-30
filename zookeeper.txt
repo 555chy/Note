@@ -1,0 +1,69 @@
+CAP理论
+CAP理论指出对于一个分布式计算系统来说，不可能同时满足以下三点
+（1）一致性(C)：在分布式环境中，一致性是指数据在多个副本之间是否能够保持一致性，等同于所有节点访问同一份最新的数据副本。在一致性的需求下，当一个系统在数据一致的状态下执行更新操作后，应该保证系统的数据仍然处于一致的状态。
+（2）可用性(A)：每次请求都能获取到正确的响应，但是不保证获取的数据为最新数据。
+（3）分区容错性(P)：分布式系统在遇到任何网络分区故障时，依然需要能够保证对外提供满足一致性和可用性的服务，除非是整个网络环境都发生了故障。
+一个分布式系统最多只能同时满足一致性（Consistency）、可用性（Availability）和分区容错性（Partition Tolerance）这三项中的两项
+在这三个基本需求中，最多只能同时满足其中的两项，P是必须的，因此只能在CP和AP中选择，zookeeper保证的是CP，对比spring cloud系统中的注册中心eruka实现的是AP
+
+到底是用AP还是CP，是由业务决定的。比如你是一个文件上传的服务器，用户可能上传几个g的文件，那么如果用一个AP的系统，拿到的可能是不可用的节点，这样返回给客户端重试，客户端肯定得疯掉，这时候就需要用CP；而像 rpc 调用，调用失败了重试就好，成本代价都不大，这时候，用AP可能会更合适。 
+
+
+BASE理论
+BASE是Basically Available(基本可用)、Soft-state(软状态)和Eentually Consistent(最终一致性)三个短语的缩写
+（1）基本可用：在分布式系统出现故障，允许损失部分可用性（服务降级、页面降级）
+（2）软状态：允许分布式系统出现中间状态。而且中间状态不影响系统的可用性。这里的中间状态是指不同的 data replication（数据备份节点）之间的数据更新可以出现延时的最终一致性。
+（3）最终一致性：data replications 经过一段时间达到一致性
+BASE理论是对CAP中的一致性和可用性进行一个权衡的结果，理论核心思想就是：我们无法做到强一致，但每个应用都可以根据自身的业务特点，采用时当的方式来使系统达到最终一致性。
+
+
+我们需要存储master信息的服务器集群，做到当信息还没同步完成时，不对外提供服务，阻塞住查寻请求，等待信息同步完成，再给查寻请求返回信息。如果数据同步的时间很短，那么这个分布式系统就和我们之前单机的系统一样，既可以保证数据的一致，又让外界感知不到请求阻塞，同时，又不会有SPOF（Single Point of Failure）的风险，即不会因为一台机器的宕机，导致整个系统不可用。这样的系统，就是分布式协调系统。
+
+
+谁能把这个数据同步的时间压缩的更短，谁的请求响应就更快，谁就更出色，Zookeeper（满足CP，不满足A）就是其中的佼佼者。它用起来像单机一样，能够提供数据强一致性，但是其实背后是多台机器构成的集群，不会有SPOF
+
+
+Zookeeper为大型分布式计算提供开源的分布式配置服务、同步服务和命名注册。
+Zookeeper的架构通过冗余服务实现高可用性。
+Zookeeper的设计目标是将那些复杂且容易出错的分布式一致性服务封装起来，构成一个高效可靠的原语集，并以一系列简单易用的接口提供给用户使用
+一个典型的分布式数据一致性解决方案，分布式应用程序可以基于它实现诸如数据发布/订阅、负载均衡、命名服务、分布式协调/通知、集群管理、Master选举、分布式锁和分布式队列等功能。
+
+
+安装zookeeper
+1.压缩包安装
+https://zookeeper.apache.org/releases.html
+2.docker安装
+docker run --privileged=true --name myZookeeper --restart always -e JVMFLAGS="-Xmx1024m" -publish 2181:2181 -d zookeeper 
+3.教程（1-8）
+https://segmentfault.com/a/1190000012185452
+
+新建配置文件：cp conf/zoo_sample.cfg conf/zoo.cfg
+启动服务端：sh bin/zkServer.sh start
+查看服务端状态：sh bin/zkServer.sh status
+查看日志：tail -f bin/zookeeper.out
+启动客户端：sh zkCli.sh
+查看ip地址：ifconfig | grep inet
+
+zookeeper的三个端口
+1. 2181：对client端提供服务
+2. 2888：集群内机器通信使用
+3. 3888：选举leader使用(集群只有一个leader，其他的都是follower)
+
+统一修改集群配置文件zoo.cfg，在其后按 server.id=ip:port:port 追加
+server.1=192.168.0.111:2888:3888
+server.2=192.168.0.112:2888:3888
+server.3=192.168.0.113:2888:3888
+
+根据 id 和对应的地址，分别配置 myid，为1，2，3
+vim /tmp/zookeeper/myid
+
+启动前需要关闭防火墙（生产环境需要打开对应端口）
+systemctl stop firewalld
+
+启动服务端，此时日志输出错误是很正常的，因为另外几台还未全部启动
+sh bin/zkServer.sh start
+
+ZooKeeper 典型的应用场景
+https://www.cnblogs.com/collin-xm/p/8081188.html
+
+

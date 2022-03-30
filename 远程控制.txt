@@ -1,0 +1,200 @@
+一、连接方式
+
+1.客户端
+采用websocket，主要是考虑到PC端除了vlc方案，也可以使用video.js通过flash播放，因此该协议比起tcp伸缩性好
+在android和ios端，由于之前与速狮后台已有一套websocket控制方案，可复用部分控制重连代码，减少总代码量
+
+2.服务端
+（1）rtsp方案，服务端用开源的EasyDarwin，它的优点是有基于Restful的API，可以获取视频列表，缺点是极不稳定
+（2）rtmp方案，服务器用nginx+rtmp模块。手机端采用第三方ijkplayer播放，PC端有两种方案（集成VLC，Video.js引导用户安装flash）
+该方案的优点是稳定，用ffmpeg测试推流8小时，服务器也不会卡死；缺点是获取推流状态必须在http://127.0.0.1:8080/stat解析xml
+
+服务器动态下发流媒体服务器类型和地址，可以实现弹性伸缩，灵活性大
+
+
+二、被控端流程
+
+1. 连接websocket服务器
+ws://192.168.1.195:8081/websocket/{uuid}
+
+2.连接成功后向服务端传送身份信息
+{
+    type: 1,
+    {
+    	id:         string,	//UUID
+    	ip:         string,	//IP
+    	model:      string,	//型号
+    	isSlaver:   boolean,	//是否为受控端
+    	osVersion:  int,	//系统版本
+    	appVersion: int,	//应用版本
+    }
+}
+
+3.获取流媒体服务器地址
+{
+    type: 2,
+    {
+    	pushUrl:    string,	//推流地址
+    	apiUrl:     string,	//获取视频列表等API地址
+    	type:	    int,	//流媒体服务器类型（RTSP：1，RTMP：2）
+    }
+}
+
+4. 仅录制视频（宽度压缩到500，高度等比例缩放），不录制音频节省带宽，fps限制在每秒10帧
+开始推流后，后更新播放状态
+{
+    type: 5,
+    {
+    	isPlaying:	true,	//是否正在播放/控制
+    	relativeId:	null,	//被控制端的ID，null表示没有
+    }
+}
+
+
+5.录制停止后，更新播放状态
+{
+    type: 5,
+    {
+    	isPlaying:	false,	//是否正在播放/控制
+    	relativeId:	null,	//被控制端的ID，null表示没有
+    }
+}
+
+
+
+三、控制端流程
+
+1. 连接websocket服务器
+ws://192.168.1.195:8081/websocket/{uuid}
+
+2.连接成功后向服务端传送身份信息
+{
+    type: 1,
+    {
+    	id:         string,	//UUID
+    	ip:         string,	//IP
+    	model:      string,	//型号
+    	isSlaver:   boolean,	//是否为受控端
+    	osVersion:  int,	//系统版本
+    	appVersion: int,	//应用版本
+    }
+}
+
+3.获取当前可控制的用户列表和地址
+{
+    type: 3,
+    {
+    	urls: string[],	//播放地址
+    	ids:  string[],	//用户标识
+    }
+}
+
+4.拿到地址让用户选择，用户点击后调用vlc播放选中urls[i]的地址，播放rtmp流。同时设置在线状态
+{
+    type: 5,
+    {
+    	isPlaying:	true, 		//是否正在播放/控制
+    	relativeId:	string,	//被控制端的ID，null表示没有
+    }
+}
+
+5.开始播放被控端视频后，将鼠标的down、move、up事件发送给服务端
+{
+    type: 4,
+    {
+    	x:	float,		//鼠标位置相对视频图像的百分比
+    	y:	float,		//鼠标位置相对视频图像的百分比
+    	event:	int,		//事件类型：down=0,up=1,move=2
+    	fromId: string,	//当前设备UUID
+    	toId:   string,	//被控制设备UUID（即播放视频源头的UUID）
+    }
+}
+
+6. 终止控制后更新播放状态
+{
+    type: 5,
+    {
+    	isPlaying:	false,		//是否正在播放/控制
+    	relativeId:	string,	//被控制端的ID，null表示没有
+    }
+}
+
+
+四、备注：
+
+1. 命令类型（type字段）
+
+//心跳包
+public static final int TYPE_PING = -1;
+{
+    type: -1
+}
+
+//错误信息
+public static final int TYPE_ERROR = 0;
+{
+    type: 0,
+    {
+    	type: 		int,		//错误类型
+    	message:	string,	//错误信息
+    }
+}
+//注册用户信息
+public static final int TYPE_USER = 1;
+{
+    type: 1,
+    {
+    	id:         string,	//UUID
+    	ip:         string,	//IP
+    	model:      string,	//型号
+    	isSlaver:   boolean,	//是否为受控端
+    	osVersion:  int,	//系统版本
+    	appVersion: int,	//应用版本
+    }
+}
+
+//获取流媒体服务器地址
+public static final int TYPE_SERVER = 2;
+{
+    type: 2,
+    {
+    	pushUrl:    string,	//推流地址
+    	apiUrl:     string,	//获取视频列表等API地址
+    	type:	    int,	//流媒体服务器类型（RTSP：1，RTMP：2）
+    }
+}
+
+//获取当前可控制的用户列表和地址
+public static final int TYPE_VIDEO_LIST = 3;
+{
+    type: 3,
+    {
+    	urls: string[],	//播放地址
+    	ids:  string[],	//用户标识
+    }
+}
+
+//发送点击事件
+public static final int TYPE_TAP = 4;
+{
+    type: 4,
+    {
+    	x:	float,		//鼠标位置相对视频图像的百分比
+    	y:	float,		//鼠标位置相对视频图像的百分比
+    	event:	int,		//事件类型：down=0,up=1,move=2
+    	fromId: string,	//当前设备UUID
+    	toId:   string,	//被控制设备UUID（即播放视频源头的UUID）
+    }
+}
+
+//用户状态改变事件
+public static final int TYPE_STATE = 5;
+{
+    type: 5,
+    {
+    	isPlaying:	boolean,	//是否正在播放/控制
+    	relativeId:	string,	//被控制端的ID，null表示没有
+    }
+}
+
+

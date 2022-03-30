@@ -1,0 +1,212 @@
+数据库信息 =====================================
+public class DbInfo {
+    public static class Hana {
+        public static final String url = "jdbc:sap://172.28.40.144:30015?reconnect=true";
+        public static final String driver = "com.sap.db.jdbc.Driver";
+        public static final String name = "NSFDATA";
+        public static final String password = "SF123321";
+    }
+
+    public static class Exasol {
+        public static final String url = "jdbc:exa:192.168.0.131:8563";
+        public static final String hana = "com.sap.db.jdbc.Driver";
+        public static final String name = "sys";
+        public static final String password = "exasol";
+    }
+}
+
+maven =======================================
+maven 阿里镜像
+<mirror>      
+    <id>nexus-aliyun</id>    
+    <name>nexus-aliyun</name>  
+    <url>http://maven.aliyun.com/nexus/content/groups/public</url>    
+    <mirrorOf>central</mirrorOf>      
+</mirror>
+
+maven 本地缓存位置
+<localRepository>D:\apache-maven-3.8.1\repo</localRepository>
+
+
+IDEA========================================
+IDE Eval Reset 付费IDEA永久使用插件
+
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>8.0.23</version>
+</dependency>
+<dependency>
+    <groupId>com.exasol</groupId>
+    <artifactId>exasol-jdbc</artifactId>
+    <version>7.0.7</version>
+</dependency>
+<dependency>
+    <groupId>com.sap.cloud.db.jdbc</groupId>
+    <artifactId>ngdbc</artifactId>
+    <version>2.8.12</version>
+</dependency>
+
+
+Redis使用心得（面试）总结
+https://blog.csdn.net/hukaijun/article/details/81010279
+
+spring cache
+https://www.cnblogs.com/coding-one/p/12401630.html
+
+@CacheEvict
+https://www.cnblogs.com/coding-one/p/12403801.html
+
+@CachePut
+https://www.cnblogs.com/coding-one/p/12403801.html
+
+缓存穿透、缓存击穿、缓存雪崩
+https://zhuanlan.zhihu.com/p/359118610
+
+Jackson
+https://blog.csdn.net/wus_shang/article/details/79286544
+
+swagger pdf
+https://blog.csdn.net/qq_29534483/article/details/81227308
+
+server.servlet.context-path配置的作用
+定义： server.servlet.context-path= # Context path of the application. 应用的上下文路径，也可以称为项目路径，是构成url地址的一部分
+server.servlet.context-path不配置时，默认为 / ，如：localhost:8080/xxxxxx
+当server.servlet.context-path有配置时，比如 /demo，此时的访问方式为localhost:8080/demo/xxxxxx
+http://docs.spring.io/spring-boot/docs/current/reference/html/appendix-application-properties.html#server-properties
+
+
+lombok继承
+https://blog.csdn.net/feinifi/article/details/85275280
+
+
+RetentionPolicy有三种策略
+1.source注解只保留在源文件中，当Java文件编译成class文件的时候，注解被遗弃
+2.注解被保留到class文件，当jvm加载class文件的时候被遗弃（默认）
+3.注解不仅被保存到class文件中，jvm加载class文件之后依然尽。
+这3个生命周期分别对应：Java源文件（.java）——> class文件——> 内存中的字节码
+生命周期SOURCE<CLASS<RUNTIME，所以前者能作用的地方后者一定也能作用。
+1.如果只是做一些检查性的操作，比如@Override或@SuppressWarnings等，则可选用SOURCE
+2.如果要在编译时进行一些预处理操作，比如生成一些辅助代码（如ButterKnife），就用CLASS注解
+3.一般如果需要在运行时去动态获取注解信息，那么只能用RUNTIME注解
+
+@ConditionalOnMissingBean与@ConditionalOnBean
+两个作用：根据当前环境或者容器情况来动态注入bean，要配合@Bean使用
+@ConditionalOnMissing:判断当前需要注入Spring容器中的bean的实现类是否已经含有，有的话不注入，没有就注入
+@ConditionalOnBean：判断当前需要注册的bean的实现类是否被spring管理，如果被管理则注入，反之不注入
+
+注解
+https://www.cnblogs.com/tqlin/p/11687811.html
+
+一元一次方程
+http://tools.jb51.net/jisuanqi/equ_jisuanqi
+
+查看application.properties支持哪些配置
+spring.io -> Projects -> Spring Boot —> LEARN Documentation -> Reference Doc. -> Application Properties
+
+在项目中，只要有登录就必定有过滤器拦截器
+(1)过滤器主要针对未登陆就访问系统页面时过滤非法url，让未登陆的用户跳转到登陆界面，可以为不同用户角色添加只有他们有权限访问的页面
+(2)拦截器主要是针对一些非法action进行拦截
+
+拦截器与Filter的区别
+Spring的拦截器与Servlet的Filter有相似之处，比如二者都是AOP编程思想的体现，都能实现权限检查、日志记录等，不同的是：
+(1)
+(2)
+(3)
+(4)
+Tomcat容器-》Filter-》Servlet-》Inteceptor-》Controller
+
+Constructor(构造方法) -> @Autowired(依赖注入) -> @PostConstruct(注释的方法)
+
+swagger一般只在dev、sit等环境使用，生产是不建议使用的
+
+
+Spring提供了许多Condition给我们使用。如果为true则创建bean，否则不创建
+@ConditionalOnBean（仅仅在当前上下文中存在某个对象时，才会实例化一个Bean）
+@ConditionalOnClass（某个class位于类路径上，才会实例化一个Bean）
+@ConditionalOnExpression（当表达式为true时，才会实例化一个Bean）
+@ConditionalOnMissBean（仅仅在当前上下文中不存在某个对象时，才会实例化一个Bean）
+@ConditionalOnMissClass（某个class路径上不存在的时候，才会实例化一个Bean）
+@ConditionalOnNotWebApplication(不是web应用)
+
+
+@ConditionalOnExpression("${edu.swagger.enable}==1
+	&&${edu.swagger.enable:true}
+	&&'${edu.swagger.enable}'.equals('true')")
+
+@ConditionalOnProperty(
+		prefix = "aa.bb.cc",
+        name = "xx",
+        havingValue = "yy"
+)Spring会判断配置文件中的配置项xx，是否值为yy，如果值不相等，则不会生成该类。然后通过@AutoWired自动绑定
+
+@RequestParam可以处理Content-Type为application/x-www-form-urlencoded的请求，Content-Type默认为该属性
+@RequestParam也可以用于其它类型的请求，例如GET、POST、DELETE
+@RequestBody接收的参数时来自requestBody中，即请求体。一般用于处理非Content-Type为application/x-www-form-urlencoded的请求，比如application/json等类型的数据
+@RequestParam和@RequestBody分别适用于表单提交和json方式提交过来的数据
+@RequestBody对于每个请求，我们有时候不一定都可以构建一个实体类与之对应，这时候可以采用Map的方式进行接收
+
+
+com的在2008年就停更了，org的则更新到2012年
+<dependency>
+    <groupId>org.jodconverter</groupId>
+    <artifactId>jodconverter-core</artifactId>
+    <version>4.4.2</version>
+</dependency>
+
+docx4j是一个用于创建和操作Microsoft Open XML (Word docx, Powerpoint pptx, 和 Excel xlsx)文件的Java类库
+
+
+linux下安装宋体
+1.到windows环境下将所需字体拷贝到linux下。(simsun.ttc(宋体),msyf.ttf（微软雅黑）)
+2.到linux环境下创建目录
+mkdir -pv /usr/share/fonts/chinese/TrueType
+将字体放入目录下
+cd /usr/share/fonts/chinese/TrueType
+chmod 755 * 为字体赋予可执行权限
+3.建立字体缓存
+# mkfontscale （如果提示 mkfontscale: command not found，需自行安装 # yum install mkfontscale ）
+# mkfontdir
+# fc-cache -fv （如果提示 fc-cache: command not found，则需要安装# yum install fontconfig ）
+
+
+
+java防止接口重复提交
+https://www.jianshu.com/p/609fedde1234
+看看人家那后端API接口写得，那叫一个优雅
+https://www.jianshu.com/p/fa75acba5b07
+严重: testWhileIdle is true, validationQuery not set 使用Druid连接池报错处理【无Spring框架，使用的JDK9，MYSQL8版本】
+https://blog.csdn.net/weixin_42323802/article/details/82726267
+spring boot:给接口增加签名验证(spring boot 2.3.1)
+https://www.cnblogs.com/architectforest/p/13220459.html
+
+Spring Boot + Redis 实现接口幂等性，看这篇就太好了！
+https://www.jianshu.com/p/88345c46c8e8
+Springboot配置log4j2异步输出日志
+https://blog.csdn.net/seanxwq/article/details/103977487
+spring boot:使用log4j2做异步日志打印(spring boot 2.3.1)
+https://www.cnblogs.com/architectforest/p/13251806.html
+spring boot+shiro实现多种登录方式
+https://blog.csdn.net/qq_37754001/article/details/89187443
+
+
+9种设计模式在Spring中的运用，一定要非常熟练
+https://www.jianshu.com/p/5db337b6d600
+
+Mybatis 框架下 SQL 注入攻击的 3 种方式，真是防不胜防
+https://www.jianshu.com/p/875902ea7df6
+
+当Swagger遇上YApi，瞬间高大上了！（一个好用的接口管理工具）
+https://www.jianshu.com/p/b6bcf95ddbfe
+
+你居然还去服务器上捞日志，搭个日志收集系统难道不香么
+https://www.jianshu.com/p/3639378691d6
+
+学习springboot
+https://github.com/niaobulashi/spring-boot-learning
+
+一个axios的简单教程
+https://www.jianshu.com/p/13cf01cdb81f
+
+mybatis
+https://mybatis.org/mybatis-3/zh/dynamic-sql.html

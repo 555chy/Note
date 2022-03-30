@@ -1,0 +1,6 @@
+android 在线预览pdf文件（目前最全）
+https://blog.csdn.net/taoyuxin1314/article/details/97004996
+
+PDF.js
+https://www.jianshu.com/p/fec41669acbb
+http://suen427.github.io/2015/11/18/pdf.js/

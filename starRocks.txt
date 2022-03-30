@@ -1,0 +1,669 @@
+
+StarRocks来源于DorisDB，而DorisDB Fork自 Apache Doris（核心成员都还在百度）
+https://baijiahao.baidu.com/s?id=1710705218916433164&wfr=spider&for=pc
+https://baijiahao.baidu.com/s?id=1710485488987002682&wfr=spider&for=pc
+Apache Doris
+https://doris.apache.org/zh-CN/installing/compilation.html
+
+
+mysql索引基数的概念
+https://blog.csdn.net/tiansidehao/article/details/78931765?spm=1001.2101.3001.6650.7&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-7.pc_relevant_aa&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-7.pc_relevant_aa&utm_relevant_index=12
+索引基数是数据列所包含的不同值的数量
+高基数（High-Cardinality）的定义为在一个数据列中的数据基本上不重复，或者说重复率非常低。
+索引选择性=索引基数/数据总数，基数可以通过“show index from 表名”查看（cardinality 索引基数）
+高索引选择性的好处就是mysql查找匹配的时候可以过滤更多的行，唯一索引的选择性最佳，值为1
+查询优化器发现某个值出现在表的数据行中的百分比很高，超过30%的时候，它一般会忽略索引，进行全表扫描
+
+
+数据局部性模式
+https://www.cnblogs.com/ZhuSenlin/p/15507475.html
+当CPU从RAM获取数据时，会将一整块连续的内存（通常64到128字节之间去）一次性获取，并存在CPU自带的存储缓存中——CPU从自身硬件获取数据当然比从外部快。当CPU需要的下一个数据恰好已经存在于缓存中（成为CPU缓冲命中），就节省了访问RAM这一步骤。若不存在，则等待RAM工作的完成。
+思路：预先进行筛选排序，将指针跳转访问转为数组连续访问
+
+
+数据分布
+https://docs.starrocks.com/zh-cn/main/table_design/Data_distribution
+1.数据分布：将数据划分为子集，按一定规则，均衡地分布在不同节点上，以期最大限度地利用集群的并发性能
+2.短查询（short-scan-query）：扫描数据量不大，单机就能完成扫描的查询
+3.长查询（long-scan-query）： 扫描数据量大，多机并行扫描能显著提升性能的查询
+
+4种数据分布方式
+1.Round-Robin：以轮转的方式把数据逐个放置在相邻节点上
+2.Range       
+3.List
+4.Hash
+
+
+星型模型与雪花模型的区别
+https://blog.csdn.net/winterPassing/article/details/105929303/
+1.根据事实表和维度表的关系，可将常见的模型分为星型模型和雪花模型
+数据仓库建设中大多时候比较适合使用星型模型构建底层数据Hive表，通过大量的冗余来提升查询效率，星型模型对OLAP的分析引擎支持比较友好
+2.雪花模型在关系型数据库中如MySQL，Oracle中非常常见，尤其像电商的数据库表。在数据仓库中雪花模型的应用场景比较少
+冗余：大宽表 > 星型 > 雪花
+
+
+Druid 与 阿里开源项目Druid
+https://blog.csdn.net/Luomingkui1109/article/details/85137201
+Druid 单词来源于西方古罗马的神话人物，中文常常翻译成德鲁伊
+1.Druid 是一个分布式的支持实时分析的数据存储系统（Data Store）官方网站是http://druid.io
+2.阿里创建过的开源项目叫Druid（简称阿里Druid），它是一个数据库连接池的项目
+
+
+StarRocks优势
+1.极致查询性能：单表查询性能已经超过ClickHouse，多表Join经过CBO优化，性能远超ClickHouse
+2.同时支持明细和聚合模型：支持Duplicate/Aggregate/Unique三种数据模型，同时支持物化视图
+3.高效数据导入：高效支持流式导入和批量导入
+4.运维简单，高可用：多副本，一致性协议支持高可用，自动化运维，操作简单
+
+
+StarRocks比clickhouse快的原因
+1.对于去重，过去主要是采用Druid来进行数据的去重，计算PV/UV等，由于Druid采用HLL近似算法，精度只能达到97%到99%，对于AB实验以及搜索推荐算法进行优化效果的评估已经不能满足用户的需求了。StarRocks支持Bitmap精确去重算法，精度提升到了100%
+2.相比于传统的Broadcast/Partition Shuffle Join算法，StarRocks提供了Colocate Join和Bucket Shuffle Join算法。Colocate Join在数据写入时，保证多个表的数据按照分桶键分布，保持一致，这样多张表Join时可以在本地进行，减少网络传输，提升查询性能
+Bucket Shuffle Join，相比于过去的Broadcast/Partition Shuffle Join需要传输多份数据，Bucket Shuffle Join只用传输一份右表的数据。当Join Key包含左表分桶键，可以实现Join时，只用传输一份右表数据，减少数据网络传输，提高查询性能。
+3.StarRocks开发Z-OrderIndexing来提升多维分析的查询性能。目前StarRocks在数据写入的时候，会在内存中将多个列按照字典的方式来进行排序，然后写入到磁盘中。这种字典排序的方式在实际的查询过程中，只有利于第一列的过滤，但是其他列的过滤效果都比较差。为了支持多维分析的场景，未来我们打算开发Z-OrderIndexing来提升多维分析的查询性能
+
+
+StarRocks支持多种数据模型（明细模型、聚合模型、更新模型），多种导入方式（批量和实时）。可整合和接入多种现有系统（Spark、Flink、Hive、ElasticSearch）
+FE: FrontEnd简称FE，是StarRocks的前端节点，负责管理元数据，管理客户端连接，进行查询规划，查询调度等工作
+BE：BackEnd简称BE，是StarRocks的后端节点，负责数据存储，计算执行，以及compaction，副本管理等工作
+Broker：StarRocks中和外部HDFS/对象存储等外部数据对接的中转服务，辅助提供导入导出功能
+StarRocksManager：StarRocks的管理工具，提供StarRocks集群管理、在线查询、故障查询、监控报警的可视化工具
+Tablet：StarRocks中表的逻辑分片，也是StarRocks中副本管理的基本单位，每个表根据分区和分桶机制被划分成多个Tablet存储在不同的BE节点上
+
+
+部署
+https://blog.csdn.net/ult_me/article/details/121716779
+1.StarRocks兼容MySQL协议，推荐使用mysql-client进行访问，也可以使用SQLyog、DBeaver、Navicat、Datagrip等图形化工具，将StarRocks视为MySQL进行连接访问
+2.一台机器上只可以部署该集群的单个FE实例，因为同一集群中所有FE实例的http_port需要相同
+3.虽然一台机器上可以错开端口部署多个BE实例，但如果需要3副本数据，那么至少需要3台机器各部署一个BE实例，这是因为StarRocks的副本均衡策略不会将同一个Tablet的副本部署在同一个IP的BE上
+4.FE的Follower要求为奇数个，且并不建议部署太多，通常我们推荐部署1个或3个Follower。在三个Follower时，即可实现高可用（HA）。此时，若Leader节点进程挂掉或与集群脱离通信，其他2个Follower节点会通过bdbje协议快速重新选主出一个Leader，保证集群的正常工作（FE Leader节点异常仅影响集群写入，不会对集群对外的查询功能有影响）。这里注意，集群中需要有半数以上的Follower节点存活，才可进行FE的重新选主。
+5.一个FE节点可以应对10-20台BE节点，我们建议总的FE节点数量在10个以下，而一般3个即可满足绝大部分业务需求
+6.StarRocks建表时默认为3副本。由于副本数不能大于BE实例数（不同Host），所以为保障数据安全，建议至少部署三个BE实例（不同Host）
+7.通常与BE混布，与BE数量保持相同，并建议所有的Broker使用相同的名称，这样在执行Broker任务时可以并行使用多个Broker实例。如果我们的业务中不需要和Hadoop类的产品对接，那么也可以不部署Broker
+8.单台机器下，同集群FE不能混布，BE虽然能混布但是没有价值。
+9.FE采用了类raft的bdbje协议完成选主, 日志复制和故障切换. 在FE集群中, 多实例分为两种角色: follower和observer; 前者为复制协议的可投票成员, 参与选主和提交日志, 一般数量为奇数(2n+1), 使用多数派(n+1)确认, 可容忍少数派(n)故障; 而后者属于非投票成员, 用于异步订阅复制日志, observer的状态落后于follower, 类似其他复制协议中的learner角色。FE集群从follower中自动选出master节点, 所有更改状态操作都由master节点执行, 从FE的master节点可以读到最新的状态. 更改操作可以从非master节点发起, 继而转发给master节点执行
+
+
+集群内部免密访问
+useradd <用户名>         --添加用户
+passwd  <密码>           --设置密码
+su <用户名>              --切换用户
+ssh-keygen -t rsa        --生成公私钥
+ssh-copy-id <远端主机IP> --将本机的公钥复制到远程机器的authorized_keys文件中，然后就可以直接ssh访问远程主机（不需要输入密码）
+如果报错：REMOTE HOST IDENTIFICATION HAS CHANGED! 说明远端主机重装，或IP被其他主机顶替
+解决办法是：删除 ~/.ssh/known_hosts文件中的IP与公钥的映射（删除那行）
+
+
+Run the container by mounting the local path (recommended)
+https://registry.hub.docker.com/r/starrocks/dev-env
+1.Avoid re-downloading java dependency 
+2.No need to copy the compiled binary package in starrocks/output from the container
+export STARROCKS_HOME="/root/starrocks"
+docker run -it \
+-e JAVA_OPTS='-Xmx14g -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$STARROCKS_HOME/log/fe.gc.log' \
+-v /root/.m2:/root/.m2 \
+-v /root/starrocks:/root/starrocks \
+--privileged=true \
+--name starrocks \
+-d starrocks/dev-env:branch-2.1 && \
+docker exec -it -u root starrocks /bin/bash
+# cd /root/starrocks
+# sh build.sh
+Docker容器里没有权限执行命令，提示Permission denied，需要在创建时添加--privileged=true
+但是发现一个问题，这个docker容器是编译环境，并没有任何可用的包
+
+
+设置主机名
+hostnamectl set-hostname <host_name>
+配置主机名与ip的对应关系
+vim /etc/hosts
+ip <域名> 
+
+
+安装java
+1.查找有哪些java包
+yum -y list java*
+2.安装openjdk(一定要带devel，否则没有jps命令)
+yum install -y java-11-openjdk-devel
+3.查看java位置
+which java
+4.查看java软链接指向的位置
+ls -lrt /usr/bin/java
+ls -lrt /etc/alternatives/java
+5.添加环境变量
+vim ~/.bashrc
+export JAVA_HOME="/usr/lib/jvm/java-11-openjdk-11.0.14.1.1-1.el7_9.x86_64/"
+export PATH=$PATH:$JAVA_HOME/bin
+6.重新加载配置文件
+source ~/.bashrc
+7.查看环境变量是否生效
+ls $JAVA_HOME
+
+
+防火墙
+https://www.cnblogs.com/xiaoyaojinzhazhadehangcheng/p/14073728.html
+systemctl status firewalld       查看防火墙状态
+systemctl start firewalld        打开防火墙
+systemctl stop firewalld         关闭防火墙
+systemctl enable firewalld       允许防火墙开机自启
+systemctl disable firewalld      禁用防火墙开机自启
+
+firewall-cmd --reload            重启防火墙
+firewall-cmd --state             查看防火墙状态
+firewall-cmd --list-port         查看哪些端口是开启的
+firewall-cmd --query-port=80/tcp 查看某个端口是否开启
+firewall-cmd --zone=public --add-port=80/tcp --permanent      永久性的开启端口（设置后要执行reload）
+firewall-cmd --zone=public --remove-port=80/tcp --permanent   永久性的关闭端口（设置后要执行reload）
+firewall-cmd --zone=public --add-port=100-500/tcp --permanent 永久性的批量开放端口（设置后要执行reload）
+firewall-cmd --zone=public --list-rich-rules
+
+
+StarRocks各实例默认使用的端口有: 8030、8040、8060、9010、9020、9030、9050、9060。
+FE端口（进程名：java）
+edit_log_port           ·9010  FE Group(Master, Follower, Observer)之间通信用的端口
+http_port               ·8030  Http Server的端口
+rpc_port	              ·9020	 FE 上的 thrift server 端口
+query_port	            ·9030	 FE 上的 mysql server 端口
+BE端口（进程名：starrocks_be）
+be_port	                ·9060	 BE 上 thrift server 的端口，用于接收来自 FE 的请求
+brpc_port	              ·8060	 BRPC的端口，可以查看BRPC的一些网络统计信息
+heartbeat_service_port	·9050	 心跳服务端口（thrift），用户接收来自 FE 的心跳
+webserver_port	        ·8040	 Http Server端口
+
+
+安装netstat
+yum repolist all        列出所有源
+yum provides */netstat  列出包含该命令的源（安装的时候把版本号去掉）
+yum install net-tools
+netstat -ntlp           列出所有端口及进程名
+yum install lsof
+lsof -i                 列出所有端口和进程名
+lsof -i tcp:<端口>      筛选某个端口
+
+
+检查CPU内存占用率(htop)
+yum -y install epel-release.noarch
+yum -y install htop
+
+
+检查磁盘性能
+(1)iostat（yum install sysstat）
+iostat 1             每秒打印一次
+(2)iotop （yum install iotop）
+类似于htop的打印工具
+
+
+测试硬盘读写速度
+yum install hdparm
+hdparm -t /dev/sda
+
+查看端口占用
+yum install -y net-tools
+netstat -ntlp
+
+
+关机
+shutdown -h now
+
+
+设置时区
+timedatectl                             查看各种格式的时间
+timedatectl list-timezones              列出所有时区
+timedatectl status|grep 'Time zone'     查看当前时区
+timedatectl set-local-rtc 1             将硬件时钟调整为与本地时钟一致, 0 为设置为 UTC 时间
+timedatectl set-timezone Asia/Shanghai  设置系统时区为上海
+校准时间
+yum -y install ntp
+ntpdate ntp1.aliyun.com
+几个常用的ntp server，如果需要更多可以前往：http://www.ntp.org.cn 获取
+#中国
+cn.ntp.org.cn
+#中国香港
+hk.ntp.org.cn
+#美国
+us.ntp.org.cn
+ntp1.aliyun.com
+0.asia.pool.ntp.org
+
+
+同步时间后可能部分服务器过一段时间又会出现偏差，因此最好设置crontab来定时同步时间
+https://www.xiaoz.me/archives/12989
+yum install crontabs
+#创建crontab任务
+crontab -e
+#添加定时任务(每60分钟执行一次，所有日志均不输出)
+*/60 * * * * /usr/sbin/ntpdate ntp1.aliyun.com > /dev/null 2>&1
+#重启crontab
+service crond reload
+
+
+./test.sh  > log.txt 2>&1
+将./test.sh的输出重定向到log.txt文件中，同时将标准错误也重定向到log.txt文件中
+
+
+获取系统启动多久了
+cat /proc/uptime| awk -F. '{run_days=$1 / 86400;run_hour=($1 % 86400)/3600;run_minute=($1 % 3600)/60;run_second=$1 % 60;printf("系统已运行：%d天%d时%d分%d秒\n",run_days,run_hour,run_minute,run_second)}'
+
+
+mysql-client源找不到（下载地址在mysql官网download里面找）
+如果安装冲突，使用rpm -qa *<关键字>*查找冲突的安装包
+找到后使用rpm -e <安装包全名>，将其删除
+在这个网站去查找的linux对应的rpm：https://dev.mysql.com/downloads/repo/yum/
+rpm -ivh https://repo.mysql.com//mysql80-community-release-el7-5.noarch.rpm
+ivh是安装，Uvh是更新
+安装 mysql-client 或者 mysql-community-client，都行
+
+
+机器节点  192.168.1.11   192.168.1.12  192.168.1.13
+部署服务  FE(Leader)     FE(Observer)
+          BE             BE            BE
+1.部署FE
+(1)进入目录
+cd StarRocks-2.1.1/fe
+(2)定制配置文件(端口：8030,9020,9030,9010)
+http_port = 8030
+rpc_port = 9020
+query_port = 9030
+edit_log_port = 9010
+vim conf/fe.conf
+  JAVA_OPTS = "-Xmx14g -XX:+UseMembar -XX:SurvivorRatio=8 -XX:MaxTenuringThreshold=7 -XX:+PrintGCDateStamps -XX:+PrintGCDetails -XX:+UseConcMarkSweepGC -XX:+UseParNewGC -XX:+CMSClassUnloadingEnabled -XX:-CMSParallelRemarkEnabled -XX:CMSInitiatingOccupancyFraction=80 -XX:SoftRefLRUPolicyMSPerMB=0 -Xloggc:$STARROCKS_HOME/log/fe.gc.log"
+(3)创建元数据目录
+mkdir -p meta
+(4)启动FE进程
+bin/start_fe.sh --daemon
+(5)确认FE启动成功
+cat log/fe.log | egrep 'start|Open' 也可以使用 grep -E 'start|Open'
+jps查看StarRocksFE进程
+使用浏览器访问8030端口，用户名root，密码空
+
+2.部署HA
+(1)对于主节点，前4步都是一样的
+如果BE启动成功，但一直无法连上FE，报错 actual backend local ip。这是因为机子有多个IP，需要修改 fe/conf/fe.conf，配置网段
+priority_networks = 192.168.1.0/24
+(2)使用mysql客户端连接主节点的FE，添加实例信息，包括角色、ip和port（自己默认是FOLLOWER，不用再添加了）
+三台服务器，一般是2个FE（自己默认是FOLLOWER，另一个设为OBSERVER）
+mysql> ALTER SYSTEM ADD FOLLOWER "<fe_host>:9010"
+mysql> ALTER SYSTEM ADD OBSERVER "<fe_host>:9010"
+如需删除FE
+ALTER SYSTEM DROP FOLLOWER "fe_host:edit_log_port";
+ALTER SYSTEM DROP OBSERVER "fe_host:edit_log_port";
+(3)使用mysql客户端，在主FE节点添加BE信息(端口是9050)
+ALTER SYSTEM ADD BACKEND "host:port";
+ALTER SYSTEM decommission BACKEND "be_host:be_heartbeat_service_port";
+ALTER SYSTEM DROPP BACKEND "172.16.139.24:9050";
+(4)从节点，启动的时候需要指定现有集群中的一个节点作为helper节点
+bin/start_fe.sh --helper <fe_host>:9010 --daemon
+如果连接不上，报java.net.NoRouteToHostException: 没有到主机的路由 (Host unreachable)，则检查防火墙是否关闭
+(5)当FE再次启动时，无需指定--helper参数，因为FE已经将其他FE的配置信息存于本地，因此可以直接启动了
+(6)查看集群状态
+mysql> SHOW PROC '/frontends'\G
+
+3.mysql访问FE
+(1)安装mysql客户端(新版的改名为：mysql-community-client)
+rpm -ivh https://repo.mysql.com//mysql80-community-release-el7-5.noarch.rpm
+yum install -y mysql-client | yum install -y mysql-community-client
+(2)使用mysql客户端连接
+mysql -h 127.0.0.1 -P9030 -uroot
+(3)查看FE状态
+mysql> SHOW PROC '/frontends'\G
+Role为FOLLOWER说明这是一个能参与选主的FE；IsMaster为true，说明该FE当前为主节点
+只关心IP和是否启用成功：mysql -h 127.0.0.1 -P9030 -uroot -e "SHOW PROC '/frontends'\G" | egrep 'IP|Alive'
+
+4.BE部署
+(1)进入目录
+cd StarRocks-2.1.1/be
+(2)创建数据目录
+mkdir -p storage
+(3)通过mysql客户端，向主节点添加BE
+mysql> ALTER SYSTEM ADD BACKEND "<be_host>:9050"
+(4)启动BE
+bin/start_be.sh --daemon
+(5)查看BE状态
+SHOW PROC '/backends'\G
+注意：BE不会出现在jps进程中。如果在操作过程中遇到任何意外问题，都可以删除并重新创建storage目录，再从头开始操作。
+
+
+
+报错：actual backend local ip
+即使FE配置了priority_networks，也可能因为一个网卡有多个地址（scope global secondary noprefixroute dynamic ens34），导致BE连不上FE
+1.使用 `ip a` 查看网卡名字
+2.一个网卡多IP是因为既设置了dynamic又指定了IP
+`vim /etc/sysconfig/network-scripts/<网卡名字>`，将BOOTPROTO由于dynamic改为none或static
+3.重启网络后生效 `service network restart`
+
+
+报错：this Replica exceeds max permissible delta: 5000 ms
+fe的日志里出现这个错误，要么是网络延迟太厉害了，但更可能的是时钟不同步，需要ntp同步时间
+ 
+
+shell命令里向mysql发送命令,可执行增删改查
+mysql -h主机名 -P端口 -u用户名 -p密码 -e "sql命令"
+自己默认是FOLLOWER，就不用添加了
+#mysql -h192.168.1.11 -P9030 -uroot -e "ALTER SYSTEM ADD FOLLOWER \"192.168.1.11:9010\";"
+mysql -h192.168.1.11 -P9030 -uroot -e "ALTER SYSTEM ADD OBSERVER '192.168.1.12:9010';"
+mysql -h192.168.1.11 -P9030 -uroot -e "SHOW PROC '/frontends'\G"
+mysql -h192.168.1.11 -P9030 -uroot -e 'ALTER SYSTEM ADD BACKEND "192.168.1.11:9050";ALTER SYSTEM ADD BACKEND "192.168.1.12:9050";ALTER SYSTEM ADD BACKEND "192.168.1.13:9050";'
+mysql -h192.168.1.11 -P9030 -uroot -e "SHOW PROC '/backends'\G"
+
+一张表的列可以分为维度列(也成为key列)和指标列(value列), 维度列用于分组和排序, 指标列可通过聚合函数SUM, COUNT, MIN, MAX, REPLACE, HLL_UNION, BITMAP_UNION等累加起来. 因此, StarRocks的表也可以认为是多维的key到多维指标的映射
+
+
+1.聚簇：是为了提高某个属性(或属性组)的查询速度，把这个或这些属性(称为聚簇码)上具有相同值的元组集中存放在连续的物理块
+2.稠密索引：即每一条记录，对应一个索引字段。稠密索引，访问速度非常块，但是维护成本大
+3.稀疏索引并没有每条记录，建立了索引字段，而是把记录分为若干个块，为每个块建立一条索引字段
+4.跳表：增加了向前指针的链表叫作跳表。跳表全称叫做跳跃表，简称跳表。跳表是一个随机化的数据结构，实质就是一种可以进行二分查找的有序链表。跳表在原有的有序链表上面增加了多级索引，通过索引来实现快速查找。跳表不仅能提高搜索性能，同时也可以提高插入和删除操作的性能
+5.谓词下推,就是在将过滤条件下推到离数据源更近的地方
+
+
+数据钻取是按照某个特定层次结构或条件进行数据细分呈现，让用户关注的数据范围从一个比较大的面，逐步下钻并聚焦到一个很小的点上。在BI领域，数据钻取主要分为两种：drill through 和 drill down
+roll up是在某一维上，将低层次的细节数据概括到高层次的汇总数据，或者减少维数，它是一种自动生成汇总行的分析方法
+drill down则与之相反，它从汇总数据深入到细节数据进行观察或增加新维
+
+
+数据模型
+根据"摄入数据" 和 "实际存储数据"之间的映射关系
+1.明细表对应明细模型（Duplicate Key）
+2.聚合表对应聚合模型（Aggregate Key）
+3.更新表对应更新模型（Unique Key）和主键模型（Primary Key）
+
+
+OLAP、ROLAP、MOLAP和HOLAP在线分析处理的区别
+https://www.jianshu.com/p/4195bfbefb9b
+OLAP    On-Line Analysis Processing
+OLAP的基本多维分析操作有钻取（roll up和drill down）、切片（slice）和切块（dice）、以及旋转（pivot）、drill across、drill through等
+1.钻取是改变维的层次，变换分析的粒度。它包括向上钻取（roll up）和向下钻取（drill down）。roll up是在某一维上将低层次的细节数据概括到高层次的汇总数据，或者减少维数；而drill down则相反，它从汇总数据深入到细节数据进行观察或增加新维。
+2.切片和切块是在一部分维上选定值后，关心度量数据在剩余维上的分布
+3.切片和切块是在一部分维上选定值后，关心度量数据在剩余维上的分布。如果剩余的维只有两个，则是切片；如果有三个，则是切块。
+4.旋转是变换维的方向，即在表格中重新安排维的放置（例如行列互换）
+
+
+OLAP有多种实现方法，根据存储数据的方式不同可以分为ROLAP、MOLAP、HOLAP
+ROLAP   Relational OLAP
+MOLAP   Multidimensional OLAP
+HOLAP   Hybrid OLAP
+1.ROLAP表示基于关系数据库的OLAP实现（Relational OLAP）以关系数据为核心，以关系型结构进行多维数据的表示和存储。
+特点是将细节数据保留在关系型数据库的事实表中，聚合后的数据也保存在关系型的数据库中。这种方式查询效率最低，不推荐使用
+2.MOLAP表示基于多维数据组织的OLAP实现（Multidimensional OLAP）以多维数据组织方式为核心，也就是说MOLAP使用多维数据存储数据。
+特点是将细节数据和聚合后的数据均保存在cube中，以空间换时间，查询效率高，但生成cube需要大量的时间和空间。
+它使用一种预先设计和计算过的cube，所以数据处理的速度要快很多
+3.HOLAP表示基于混合数据组织的OLAP实现（Hybrid OLAP）如底层是关系型的，高层是多维矩阵型的。这种方式具有更好的灵活性。
+特点是将细节数据保留在关系型数据库的事实表中，但是聚合后的数据保存在cube中，聚合时需要比ROLAP更多的时间，查询效率比ROLAP高，但低于MOLAP。
+从体系架构上说，采用MOLAP使得OLAP应用和数据仓库分离开，降低了耦合度。
+代价是增加了ETL的复杂度，。而ROLAP技术直接依赖数据仓库，与之紧密结合，OLAP的性能很大程度上依赖数据仓库模式设计，这一点不是总是被保证的。
+
+
+CUBE和ROLLUP之间的区别（mysql只支持rollup）
+https://www.cnblogs.com/dyufei/archive/2009/11/12/2573974.html
+1.CUBE生成的结果集显示了所选列中值的所有组合的聚合（groupby所有元素的分别聚合与整表聚合）
+2.ROLLUP生成的结果集显示了所选中值的某一层次结构(某一列)的聚合（仅groupby第一个元素，分别聚合与整表聚合）
+ROLLUP的优点
+（１）ROLLUP 返回单个结果集，而 COMPUTE BY 返回多个结果集，而多个结果集会增加应用程序代码的复杂性。
+（２）ROLLUP 可以在服务器游标中使用，而 COMPUTE BY 则不可以。
+（３）有时，查询优化器为 ROLLUP 生成的执行计划比为 COMPUTE BY 生成的更为高效
+
+Rollup
+https://docs.starrocks.com/zh-cn/main/quick_start/Import_and_query
+Rollup是StarRocks使用的一种新型预计算加速技术，可以理解为基于基础表构建的一个物化索引结构。
+物化是因为其数据在物理上独立存储，而索引的意思是，Rollup可以调整列顺序以增加前缀索引的命中率，也可以减少key列以增加数据的聚合度
+ALTER TABLE table1 ROLLUP rollup_city(citycode, pv)
+SHOW ALTER TABLE ROLLUP\G
+desc table all
+CANCEL ALTER TABLE ROLLUP FROM table1;
+
+
+compute by 的每个汇总，都会独立出一行，以聚合行数为名，仅一列
+https://www.cnblogs.com/javaleon/p/4128459.html
+SELECT 部门,员工,SUM(工资)AS TOTAL FROM DEPART GROUP BY 部门,员工
+SELECT 部门,员工,SUM(工资)AS TOTAL FROM DEPART GROUP BY 部门,员工 WITH ROLLUP
+SELECT 部门,员工,SUM(工资)AS TOTAL FROM DEPART GROUP BY 部门,员工 WITH CUBE
+SELECT 部门,员工,工资 FROM DEPART COMPUTE SUM(工资) BY 部门,员工
+
+
+使用ALTER TABLE命令可以修改表的Schema，包括如下修改：
+1.增加列
+2.删除列
+3.改变列类型
+4.改变列顺序
+使用命令查看`SHOW ALTER TABLE COLUMN\G`
+
+
+
+排序键与传统主键的区别
+1.数据表所有维度列构成排序键
+2.排序键可重复，不必满足唯一性约束
+3.数据表的每一列，以排序键的顺序，聚簇存储
+4.排序键使用稀疏索引
+
+
+对于摄入（ingest）的主键重复的多行数据，填充于（populate）数据表中时，按照三种处理方式划分：
+1.明细模型：表中存在主键重复的数据行，和摄入数据行一一对应，用户可以召回所摄入的全部历史数据
+2.聚合模型：表中不存在主键重复的数据行，摄入的主键重复的数据行合并为一行，这些数据行的指标列通过聚合函数合并，用户可以召回所摄入的全部历史数据的累计结果，但无法召回全部历史数据
+3.更新模型&主键模型：聚合模型的特殊情形，主键满足唯一性约束，最近导入的数据行，替换掉其他主键重复的数据行。相当于在聚合模型中，为数据表的指标列指定的聚合函数为REPLACE，REPLACE函数返回一组数据中的最新数据
+
+
+明细模型
+StarRocks建表的默认模型是明细模型（Duplicate Key），使用场景如下
+1.需要保留原始的数据（例如原始日志，原始操作记录等）来进行分析
+2.查询方式灵活，不局限于预先定义的分析方式，传统的预聚合方式难以命中
+3.数据更新不频繁，导入数据的来源一般为日志数据或者是时序数据，以追加写入为主要特点，数据产生后就不会发生太多变化
+4.充分利用排序列，在建表时将经常在查询中用于过滤的列放在表的前面，这样能够提升查询速度
+5.明细模型中，可以指定部分的维度列为排序键；而聚合模型和更新模型中，排序键只能是全体维度列
+CREATE TABLE IF NOT EXISTS detail (
+    event_time DATETIME NOT NULL COMMENT "datetime of event",
+    event_type INT NOT NULL COMMENT "type of event",
+    user_id INT COMMENT "id of user",
+    device_code INT COMMENT "device of ",
+    channel INT COMMENT ""
+)
+DUPLICATE KEY(event_time, event_type)
+DISTRIBUTED BY HASH(user_id) BUCKETS 8
+报错：Create olap table should contain distribution desc，说明建表必须包含DISTRIBUTED
+报错：Number of hash distribution is zero，               说明分桶数不得为0
+报错：Replication num should larger than 0. (suggested 3) 副本数必须大于0
+
+
+聚合模型
+
+更新模型
+
+
+主键模型
+原有的表模型整体上采用了读时合并(Merge-On-Read)的策略，写入时处理简单高效，但是读取(查询)时需要在线合并多版本。由于Merge算子的存在使得谓词无法下推和索引无法使用，严重影响了查询性能。而主键模型通过主键约束，保证同一个主键下仅存在一条记录，这样就完全避免了Merge操作
+1.StarRocks收到对某记录的更新操作时，会通过主键索引找到该条记录的位置，并对其标记为删除，再插入一条新的记录。相当于把Update改写为Delete+Insert
+2.StarRocks收到对某记录的删除操作时，会通过主键索引找到该条记录的位置，对其标记为删除。这样在查询时不影响谓词下推和索引的使用, 保证了查询的高效执行
+3.相比更新模型，主键模型通过牺牲微小的写入性能和内存占用，极大提升了查询性能
+4.注意：每次查询出来的次序不会相同，如果需要次序相同，要使用order by
+
+
+CREATE TABLE IF NOT EXISTS person(
+	id bigint NOT NULL,
+	age tinyint NOT NULL,
+	name string NOT NULL,
+	isMale boolean NOT NULL,
+	city string NOT NULL
+)PRIMARY KEY(id, age)
+PARTITION BY RANGE(age)(
+PARTITION `p1` VALUES LESS THAN ("18"),
+PARTITION `p2` VALUES LESS THAN ("30"),
+PARTITION `p3` VALUES LESS THAN ("60"),
+PARTITION `p4` VALUES LESS THAN ("100")
+) DISTRIBUTED BY HASH(id) BUCKETS 10
+PROPERTIES("replication_num" = "2");
+
+
+分区
+https://blog.csdn.net/qq_28203321/article/details/120412286
+错误 [1064] [42000]: The partition column could not be aggregated column.  说明：分区列没有加到unique key里面（会导致主键模式，id和分区键必须同时相同，才会被当成同一个进行替换）
+错误 [1064] [42000]: Key columns should be a ordered prefix of the schema. 说明：Key中列的定义，必须放在最前面
+错误 [1064] [42000]: Failed to find enough host in all backends. need: 3.  说明：PROPERTIES("replication_num" = "3");说明有2个副本，那至少要有3个BE（即要开3台机）。如果不用副本，则将其置为1
+分区分为3种：
+1.Range分区
+2.List分区
+3.动态分区表
+4.添加临时分区
+5.删除临时分区
+
+Doris数据分区Partition、数据分桶(distributed by)
+https://blog.csdn.net/yy8623977/article/details/120942925
+
+
+临时分区
+https://www.cnblogs.com/yyystar/p/15598546.html
+
+
+
+Json导入
+curl -v --location-trusted -u root: \
+    -H "format: json" -H "jsonpaths: [\"$.id\", \"$.city\"]" \
+    -T example.json \
+    http://FE_HOST:HTTP_PORT/api/DATABASE/TABLE/_stream_load
+    
+-v 输出通信的整个过程，用于调试
+-H 添加HTTP请求的标头
+-T 指定上传文件
+-d 指定发送 POST 请求的数据体
+-X 指定 HTTP 请求的方法（GET, POST等）
+
+
+CSV导入
+1.首先在数据库中创建表结构
+2.使用curl命令导入数据
+curl --location-trusted -u root -T test.csv -H "label: 20220321_1046" -H "column_separator:," http://192.168.1.11:8030/api/test/person/_stream_load
+curl --location-trusted -u root -T test.csv -H "label: $(date +%Y%m%d_%H%M%S)" -H "column_separator:," http://192.168.1.11:8030/api/test/person1/_stream_load
+报错：too many filtered rows，即分隔符与定义的不一样
+报错：Label Already Exists，即label重复，建议使用$(date +%Y%m%d_%H%M%S)的方式，让其自动生成label
+上传1千万数据，在i3 8100的3台机集群，HDD机械硬盘（hdparm -t /dev/sda 速度160M/s）
+curl --location-trusted -u root -T test.csv_1kw -H "label: $(date +%Y%m%d_%H%M%S)" -H "column_separator:," http://192.168.1.11:8030/api/test/person3/_stream_load
+【主键模式】
+这是2个副本的结果
+    "TxnId": 1022,
+    "Label": "20220321_105945",
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 10000000,
+    "NumberLoadedRows": 10000000,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 323089965,
+    "LoadTimeMs": 66857,
+    "BeginTxnTimeMs": 0,
+    "StreamLoadPutTimeMs": 1,
+    "ReadDataTimeMs": 51602,
+    "WriteDataTimeMs": 66824,
+    "CommitAndPublishTimeMs": 30
+这是1个副本的结果
+    "TxnId": 1032,
+    "Label": "20220321_204930",
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 10000000,
+    "NumberLoadedRows": 10000000,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 323089965,
+    "LoadTimeMs": 65976,
+    "BeginTxnTimeMs": 1,
+    "StreamLoadPutTimeMs": 1,
+    "ReadDataTimeMs": 44265,
+    "WriteDataTimeMs": 65954,
+    "CommitAndPublishTimeMs": 19
+副本只会影响读数据和提交的时间长度
+【明细模式】
+分10000桶
+{
+    "TxnId": 1034,
+    "Label": "20220321_210629",
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 10000000,
+    "NumberLoadedRows": 10000000,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 323089965,
+    "LoadTimeMs": 27735,
+    "BeginTxnTimeMs": 0,
+    "StreamLoadPutTimeMs": 2,
+    "ReadDataTimeMs": 438,
+    "WriteDataTimeMs": 27705,
+    "CommitAndPublishTimeMs": 26
+}
+分100桶
+{
+    "TxnId": 1038,
+    "Label": "20220321_211732",
+    "Status": "Success",
+    "Message": "OK",
+    "NumberTotalRows": 10000000,
+    "NumberLoadedRows": 10000000,
+    "NumberFilteredRows": 0,
+    "NumberUnselectedRows": 0,
+    "LoadBytes": 323089965,
+    "LoadTimeMs": 17218,
+    "BeginTxnTimeMs": 1,
+    "StreamLoadPutTimeMs": 3,
+    "ReadDataTimeMs": 15641,
+    "WriteDataTimeMs": 17183,
+    "CommitAndPublishTimeMs": 29
+}
+
+
+方差，标准差
+1.方差：      s^2=[(x1-x)^2 +...(xn-x)^2]/n 
+2.样本标准差：s  =sqrt(((x1-x)^2 +...(xn-x)^2)/(n-1))
+3.总体标准差：σ  =sqrt(((x1-x)^2 +...(xn-x)^2)/n)
+注解：上述两个标准差公式里的x为一组数（n个数据）的算术平均值。当所有数（个数为n）概率性地出现时（对应的n个概率数值和为1），则x为该组数的数学期望
+若n个数据为总体，则求总体标准差，标准差公式根号内除以n；若n个数据为样本，则求样本标准差，标准差公式根号内除以（n-1)
+因为我们接触的数据多为样本，所以一般情况下根号内除以（n-1)
+在统计学中，样本的均差多是除以自由度（n-1)，它的意思是样本能自由选择的程度。当选到只剩一个时，它不可能再有自由了，所以自由度是（n-1)
+
+公式如下：
+(总体)方差   VAR_POP,VARIANCE,VARIANCE_POP
+样本方差     VAR_SAMP,VARIANCE_SAMP
+(总体)标准差 STDDEV,STDDEV_POP
+样本标准差   STDDEV_SAMP
+
+
+select count(*), count(distinct id), APPROX_COUNT_DISTINCT(id) from person
+1.count                     用来计算行数
+2.count(distinct id)        用来计算不重复的行数
+3.APPROX_COUNT_DISTINCT(id) 近似估计不重复的行数（误差有1%左右）
+
+
+BITMAP的运用
+https://blog.csdn.net/qq_22520215/article/details/77893326
+bitmap也会有缺点，那就是在不知道总用户的情况下，无法用非运算
+
+
+
+starRocks支持4种表引擎，除了olap，其它都是外表引擎（mysql，elasticsearch，hive）
+
+
+PROPERTIES支持的属性
+"in_memory" = "true"
+
+
+
+
+
+3.18,3.21 生成随机数据，重新导入，测试简单语法
+3.22      测试starRocks的4种表结构，插入与查询性能差异
+3.23-25   对比测试clickhouse性能
+
+
+1.对于常用于统计汇总的列，可以建立rollup结构（相当于物化视图进行汇总）
+2.clickhouse根据值的不同，来定义分区；starrocks使用值的一个范围来定义分区
+3.clickhouse采用分区+分块的方式切分数据；starRocks采用分区+分桶的方式防止数据倾斜
+4.starrocks的更新模型，相当于clickhouse的replacingMergeTree，而主键模型则是其升级版，像OLTP数据库一样直接支持了主键
+优点是：插入时直接进行删除，避免了每次查询前都要做一次分区合并带来的性能损耗
+但是理论上它也是有缺点的，因为每次插入都要做一遍对比，因此会降低插入效率（待验证）
+5.starrocks采用了colocate join的方案，性能上比clickhouse要快很多。这使得原本的宽表结构，可以采用星形模型替代
+6.starrocks默认开启CBO优化。它能够基于成本选择最优的执行计划，大幅提升复杂查询的效率和性能
+
+1.默认支持开窗函数
+2.外表仅支持mysql，elasticsearch，hive。并不支持pgsql
+3.数据可以通过http将csv或json导入starrocks，或使用flink进行ETL之后导入
+4.副本个数默认是3，需要几个副本就必须有几台机器（一般做集群的话需要3台服务器）
+5.主键和分区键，必须在定义表的最前面声明，否则报错。另外分区键必须是主键之一，否则也是报错
+6.只要在属性里配置"in_memory" = "true"，starrock也有和clickhouse一样的内存表模式
+7.boolean类型一般用0和1表示
+8.其他语法都与mysql基本相当

@@ -1,0 +1,35 @@
+Plantuml
+https://www.jianshu.com/p/30f6a9c06083
+
+typora
+https://www.jianshu.com/p/007a13ca4d0e
+
+processOn
+https://www.processon.com/
+
+
+时序图
+https://www.websequencediagrams.com/
+
+title 客户端自动签到
+客户端->服务端: 发送ReqSignInfo获取签到信息
+note left of 客户端: 仅在websocket连上之后，发送一次
+服务端->客户端: 服务端返回RespSignInfo，并告诉客户端是否开启自动签到，以及需要的能力（WIFI，GPS）
+客户端->服务端: 依次确保收到RespSignInfo，服务端允许自动签到，当前未在签到，在该时间端内未签到。然后发送签到请求
+note left of 客户端: 首次在收到RespSignInfo后立即发送，其余均在ping的时候检测发送
+
+title 服务端签到
+服务端->服务端: 从数据库的sys_config表中读取是否自动签到，以及自动签到需要哪些能力
+note left of 服务端: 在websocket初始化完毕后立即获取
+客户端->服务端: 客户端发送ReqSignInfo请求，获取自动签到的信息
+服务端->客户端: 返回之前从sys_config表中查询到的信息
+note left of 服务端: 该响应也可以由服务端主动推送给客户端
+客户端->服务端: 客户端发送签到请求
+note right of 客户端: 首次登录的时候，若在签到时段内，会发一次
+note right of 客户端: 登录后在每个签到时段内仅会发送一次
+服务端->服务端: 根据sys_sql_config中配置的sql判断该时段是否已签到
+服务端->服务端: 若未签到，则进行签到
+服务端->客户端: 将签到结果返回给客户端
+
+
+

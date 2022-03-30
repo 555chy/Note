@@ -1,0 +1,102 @@
+///win直接配置到环境编辑即可，mac配置到bash_profile
+export PUB_HOSTED_URL=https://pub.flutter-io.cn //国内⽤户需要设置
+export FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn //国内⽤户需要设置
+
+Dart属于强类型语言，但可以用var来声明变量，Dart会自动推导处数据类型，var实际上是编译期的"语法糖"。
+dynamic表示动态类型，被编译后，实际是一个object类型，在编译后，实际是一个object类型，在编译期间不进行任何的类型检查，而是在运行期进行类型检查
+
+Dart中的number类型只有int和double
+Dart下只有bool型可以用于if等判断，不同于JS这种使用方式是不合法的var g=null; if(g){}
+
+Dart中final和const表示常量。其中const的值必须在编译期指定，final的值可以等到运行期再指定（Flutter在Release下是AOT模式）
+
+Dart下??、??=属于操作符，如AA ?? 999表示如果AA为空，返回999; AA ??= 999表示如果AA为空，则给AA设置成999
+
+Dart方法可以设置参数默认值和指定名称。参数类型可以指定或者不指定
+
+Dart不像Java，没有关键词public、private等修饰符，_下横线直接代表private，但是有@protected注解
+
+Flutter中支持 async/await。func() async { return "ok"; } 调用该函数返回Future对象，只有在加await后，才会直接返回原始类型
+
+Flutter中的setState很有React Native的即视感，Flutter中也是通过state跨帧实现管理数据状态的
+Flutter中一切皆Widget呈现，通过build方法返回Widget，这也是和React Native中，通过render函数返回需要渲染的component一样的模式
+Stream对应的async*/yield也可以用于异步
+
+Flutter Widget
+在Flutter中，一切的显示都是Widget。Widget是一切的基础，作为响应式的渲染，类似MVVM的实现机制。
+我们可以通过修改数据，再用setState设置数据，Flutter会自动通过绑定的数据更新Widget。所以你需要做的就是实现Widget界面，并和数据绑定起来。
+Widget分为有状态和无状态两种，在Flutter中每个页面都是一帧，无状态就是保持在那一帧，而有状态的Widget当数据更新时，其实是绘制了新的Widget，只是State实现了跨帧的数据同步保存。
+Tip：代码框输入stl，可以自动弹出创建无状态控件的模板选项，而输入stf时，就会弹出创建有状态Widget的模板选项
+
+1.无状态StatelessWidget，通过build方法返回一个布局好的控件。Widget和Widget之前通过child进行嵌套
+2.有状态的StatefulWidget，需要创建管理的主要是State，通过State的build方法去构建控件。在State中，你可以动态地改变数据，类似MVVM实现，在setState之后，改变的数据会触发Widget重新构建刷新。
+State中主要的声明周期有
+(1)initState 初始化，理论上只有初始化一次
+(2)didChangeDependencies 在initState之后调用，此时可以获取其他State
+(3)dispose 销毁，只会调用一次
+你只要关注：创建你的StatelessWidget或者StatefulWidget而已。你需要的就是在build中堆积你的布局，然后把数据添加到Widget中，最后通过setState改变数据，从而实现画面变化
+
+Widgets目录
+https://flutterchina.club/widgets/
+使用Flutter的一套的视觉、结构、平台和交互式widgets，快速创建漂亮的APP
+
+一.基础组件
+在构建您的第一个Flutter应用程序之前，您绝对需要了解这些widget
+
+二.Material Components
+实现了Material Design指南的视觉、效果、motion-rich的widget
+
+三.Cupertino(iOS风格的widget)
+用于当前iOS设计语言的美丽和高保真widget
+
+四.Layout
+排列其他widget的columns、rows、grids和其他的layouts
+1.拥有单个子元素的布局widget
+(1)
+(2)
+(3)
+(4)
+(5)
+(6)
+(7)
+(8)
+(9)
+(10)
+(11)
+(12)
+(13)
+(14)
+(15)
+(16)
+(17)
+(18)
+2.拥有多个子元素的布局widget
+(1)
+(2)
+(3)
+(4)
+(5)
+(6)
+(7)
+(8)
+(9)
+(10)
+3.Layout helpers
+
+五.Text
+文本显示和样式
+
+六.Assets、图片、Icons
+管理assets，显示图片和Icon
+
+七、Input
+Material Components和Cupertino中获取用户输入的widget
+
+八、动画和Motion
+在您的应用中使用动画
+
+九、交互模型
+响应触摸事件并将用户路由到不同的页面视图（View）
+
+十、样式
+管理应用的主题，使应用能够响应式的适应屏幕尺寸或添加填充

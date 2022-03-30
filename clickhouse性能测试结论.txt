@@ -1,0 +1,73 @@
+﻿clickhouse是一款开源数据库，但其性能基本与收费的商业OLAP数据库exasol一致，执行效率远超传统OLTP数据库
+
+1. 验证数据正确性，分析大于2秒的性能（10,000,000行x20列）
+	（1）insert		555s
+	（2）select		0.5～5s（where过滤后的条数越少，查询越快；不用offset和order只要0.5s）
+	（3）update		1s
+	（4）group		0.1s
+	（5）count		0.01s
+	（6）YEAR，MONTH，MIN，MAX，AVG，SUM	0.05s
+	（7）join		0.05s（左表为一千行的小表时，不使用limit反而更快）
+
+
+2.分析查询执行过程中的耗损
+	（1）计算基本在50ms以内
+	（2）查询 limit 1,000,000 条，也只要50ms
+	（3）当limit需要配上offset时，clickhouse规定必须加上order by。由于需要遍历全表，速度就慢了。
+		10,000,000 行的数据库，只要加上order，查询时间在4.8s左右，limit与offset设多少都差不多
+		优化方案：
+		a）将 select* 替换为5个字段，时间降到2.5s；替换为4个字段时间降到1.7s
+		b）使用where筛选所需行，总时间与筛选后条数线性相关。例如，筛选后条数变为原先的1/3，则时间也变为原先的1/3
+		c）clickhouse查询有进行缓存，同一语句再次执行会快很多。例如，某条带order语句首次查询花了3.5s，从第二次起只要200ms
+		d）当数据不多的情况，offset这步由客户端完成
+	（4）当对某个字段进行order查询后，同样对该字段order的查询会加速
+
+
+3.大量操作后是否会影响性能
+	大量并发操作会进入队列，依次处理，并导致执行总时间逐渐增加。
+	例如，开启 1000 个线程，随机不同的where子句 或 使用固定复杂语句，查询的时间会逐渐增长。
+		10,000,000行x20列Person表，1,000行x7列，并发时查询当前服务器资源信息，cpu占用50%，8G内存基本被占满
+
+	以如下两个语句为例（where不变，为使用缓存；否则为不使用缓存）
+		a）
+		SELECT * FROM PERSON WHERE age < 50 ORDER BY wages LIMIT 300
+		单条执行：2.5s
+		同步使用缓存：首次3s-15s不等，从第2次起基本都在200ms左右
+		同步不使用缓存：每次均为3s-15s，若数值与之前相近，有时候也会在1-2s内返回
+		并发使用缓存：首次3s-15s不等，第2次开始，每次返回都在上一次返回后的200ms左右
+		并发不使用缓存：每次均为3s-15s，用户总的等待时间根据队列顺序递增
+
+		b）
+		SELECT class_id, (AVG(chinese)+AVG(math)+AVG(english))/3 AS average, MAX(person.wages), ROUND(AVG(person.age)) AS avg_age
+		FROM "dbtest".score 
+		INNER JOIN 
+		(SELECT id, age, wages,hobby_count FROM "dbtest".person WHERE height < 1.6) AS person
+		ON person.id = score.person_id
+		GROUP BY class_id
+		ORDER BY avg_age DESC
+		单条执行：800ms
+		同步使用缓存：首次800ms，从第二次起50ms
+		同步不使用缓存：首次800ms，若数值与之前相近，有时候也会在100ms内返回
+		并发使用缓存：首次800ms，第2次开始，每次返回都在上一次返回后的50ms左右
+		并发不使用缓存：每次均为100ms，用户总的等待时间根据队列顺序递增
+
+	结论：同一条语句多次查询，clickhouse会利用缓存加速；clickhouse处理是单线程的，同时收到多条语句时，会将其排队依次处理
+
+	clickhouse的每个节点，可以同时处理10000个会话。
+
+	并发测试（2秒内返回，最多支持多少个线程，创建线程池，打开分别连接，预编译sql，执行sql，并获取返回值）
+		a）join/group支持并发150个线程
+		SELECT class_id, person.weight, (AVG(chinese)+AVG(math)+AVG(english))/3 AS avg_score, MAX(person.wages), ROUND(AVG(person.age)) AS avg_age
+		FROM "dbtest".score 
+		INNER JOIN
+		(SELECT id, age, weight, wages, hobby_count FROM "dbtest".person WHERE height < 1.2) AS person
+		ON person.id = score.person_id
+		GROUP BY score.class_id,person.weight
+		ORDER BY avg_age DESC;
+		b）带order的查询只能1-2条
+		c）同一条查询语句，去掉order，支持并发150条线程
+	
+		由于order耗时严重，测试发现where后的行数在176万左右，基本内限制在1秒内返回
+		SELECT * FROM person 
+		WHERE PROVINCE in ('青海省','贵州省','西藏自治区','山西省','福建省','台湾省') 
+		ORDER BY height LIMIT 200

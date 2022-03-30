@@ -1,0 +1,25 @@
+安装SVN
+sudo apt-get install subversion
+
+检出文件
+svn co svn://<svn repository url>/destination
+svn checkout 可以简写为 svn co
+
+往版本库中添加文件(支持通配符)
+svn add <file>
+
+提交修改的文件
+svn commit -m <修改信息>
+
+更新文件
+svn update
+
+查看日志
+svn log
+
+
+加/解锁
+svn lock -m <附加信息> [--force] <path>
+svn unlock <path>
+
+

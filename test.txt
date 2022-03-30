@@ -1,0 +1,72 @@
+防止重复提交
+https://www.jianshu.com/p/609fedde1234
+
+Stetho的介绍 + 火狐调试
+https://blog.csdn.net/qq_26411333/article/details/52084862
+
+
+git操作方法
+https://www.cnblogs.com/sunshinekevin/p/11617562.html
+
+https://www.cnblogs.com/miskis/p/9816135.html
+
+https://blog.csdn.net/u010555688/article/details/52997475/
+
+java_home
+maven.executable.path
+java.configuration.maven.userSettings
+git.path
+
+vscode 命令
+https://blog.csdn.net/luoaki/article/details/106442726?utm_medium=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-2.compare&depth_1-utm_source=distribute.pc_relevant.none-task-blog-BlogCommendFromMachineLearnPai2-2.compare
+
+"search.exclude": {
+            "**/node_modules": true,
+            "**/bower_components": true,
+            "**/target": true,
+            "**/logs": true
+        }
+        
+JUNIT测试        
+    "tasks": [
+{
+    "label": "test:HelloWorld",
+    "type": "shell",
+    "command": "mvn -Dtest=HelloWorldTest#testHelloWorld test",
+    "group": "test"
+},
+
+Snippets Prevent Quick Suggestions
+控制在活动代码片段内是否禁用快速建议
+
+
+安卓如何加载图片 
+https://www.jianshu.com/p/236c3ba7c61e
+https://www.jianshu.com/p/8b896ab8552e
+https://blog.csdn.net/tsxw24/article/details/8315672
+https://www.cnblogs.com/yexiaochai/p/4271834.html
+
+
+git submodule update --init --recursive
+
+
+include //etc/nginx/mime.types
+如果不设置css文件就会被当作text/plain类型发送到浏览器。从而导致css文件服务显示。
+
+
+磁盘io
+apt install sysstat
+apt install iotop
+iostat iotop
+
+centos图形界面
+yum groupinstall "X Window System"
+yum groupinstall -y "GNOME Desktop"
+
+
+RSA通信，客户端要RSA/ECB/NOPAdding
+BASE64，要NO_WRAP，更好的方式是SAFE_URL
+
+否则部分数据还要经过URLEncoding
+
+幸存者偏差
