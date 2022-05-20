@@ -1,3 +1,7 @@
+遇到ClassNotFoundException，按两下Shift，然后输入包名。它会根据本地maven仓库的的jar包，去搜索对应类，并给出提示
+
+
+
 官网
 https://ci.apache.org/projects/flink/flink-docs-stable/
 
@@ -328,3 +332,308 @@ blob.server.port: 50301-50400
 并发是指同时处理很多事情
 而并行是指同时能完成很多事情
 一个重点是组合，一个重点是执行
+
+
+Flink 容错性机制- 屏障（barrier）实现原理
+https://www.jianshu.com/p/ac9e727cb74f
+
+
+StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
+Flink存储状态的间隔
+env.getCheckpointConfig().setCheckpointInterval(20000);
+//设置事件时间
+env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime);
+
+
+Flink作业问题分析和调优实践
+https://www.sohu.com/a/406609828_120342237
+
+背压的产生以及Flink的反压处理
+
+
+
+Flink程序本质上是分布式并行程序，在程序执行期间，
+一个流有一个或多个流分区（Stream Partition），
+每个算子有一个或多个算子子任务（Operator Subtask）。
+每个子任务彼此独立，并在不同的线程中运行，或在不同的计算机或容器中运行
+
+CREATE TABLE transactions(
+  account_id       BIGINT,
+  amount           BIGINT,
+  transaction_time TIMESTAMP(3),
+  WATERMARK FOR transaction_time AS transaction_time - INTERVAL '5' SECOND
+  'connector' = 'kafka',
+  'topic'     = 'transactions',
+  'properties.bootstrap.servers' = 'kafka:9092',
+  'format'    = 'csv'
+)
+CREATE TABLE spend_report(
+  account_id BIGINT,
+  log_ts     TIMESTAMP(3),
+  amount     BIGINT,
+  PRIMARY KEY(account_id, log_ts) NOT ENFORCED
+) WITH (
+  'connector' = 'jdbc',
+  'url'       = 'jdbc:mysql://mysql:3306/sql-demo',
+  'table-name'= 'spend_report',
+  'driver'    = 'com.mysql.jdbc.Driver',
+  'username'  = 'sql-demo',
+  'password'  = 'demo-sql'
+)
+
+
+dinky 
+1.启动mysql
+docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql
+docker exec -it mysql bash
+mysql -uroot -p123456
+create user 'dlink'@'%' identified by  'dlink';
+grant all privileges on *.* to 'dlink'@'%' with grant option;
+2.将dlink的sql复制到容器中
+tar -zxvf dlink-release-0.6.1.tar.gz
+cd /root/dlink-release-0.6.2/sql
+docker exec mysql mkdir /sql/
+docker cp dlink.sql mysql:/sql/
+docker cp dlink_history.sql mysql:/sql/
+3.下载并启动flink
+docker run -itd --name flink -p 8081:8081 flink
+yum install -y maven
+cd /root/dlink-release-0.6.2/plugins
+wget https://github.com/DataLinkDC/dlink/blob/dev/dlink-flink/dlink-flink-1.14/pom.xml
+mvn -f pom.xml dependency:copy-dependencies
+
+
+clickhouse-jdbc                   https://repo1.maven.org/maven2/com/clickhouse/clickhouse-jdbc/0.3.2/clickhouse-jdbc-0.3.2.jar                      
+flink-connector-jdbc              https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-connector-jdbc_2.12/1.14.4/flink-connector-jdbc_2.12-1.14.4.jar
+flink-csv                         https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-csv/1.14.4/flink-csv-1.14.4.jar
+flink-dist
+flink-json                        https://repo1.maven.org/maven2/org/apache/flink/flink-json/1.14.4/flink-json-1.14.4.jar
+flink-shaded-hadoop-2             https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-hadoop-2/2.8.3-10.0/flink-shaded-hadoop-2-2.8.3-10.0.jar
+flink-shaded-hadoop-2-uber        https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+flink-shaded-hadoop-3-uber        https://repository.cloudera.com/artifactory/cloudera-repos/org/apache/flink/flink-shaded-hadoop-3-uber/3.1.1.7.2.9.0-173-9.0/flink-shaded-hadoop-3-uber-3.1.1.7.2.9.0-173-9.0.jar
+flink-shaded-zookeeper            https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-zookeeper-3/3.6.3-15.0/flink-shaded-zookeeper-3-3.6.3-15.0.jar
+flink-sql-connector-elasticsearch https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-elasticsearch7_2.12/1.14.4/flink-sql-connector-elasticsearch7_2.12-1.14.4.jar
+flink-sql-connector-hive
+flink-sql-connector-hbase
+flink-sql-connector-mysql-cdc     https://search.maven.org/remotecontent?filepath=com/ververica/flink-sql-connector-mysql-cdc/2.2.0/flink-sql-connector-mysql-cdc-2.2.0.jar
+flink-sql-connector-oracle-cdc    https://search.maven.org/remotecontent?filepath=com/ververica/flink-sql-connector-oracle-cdc/2.2.0/flink-sql-connector-oracle-cdc-2.2.0.jar
+flink-table_2.12                  https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-table_2.12/1.7.2/flink-table_2.12-1.7.2.jar
+mysql-connector-java              https://search.maven.org/remotecontent?filepath=mysql/mysql-connector-java/8.0.29/mysql-connector-java-8.0.29.jar
+ojdbc
+
+wget https://repo1.maven.org/maven2/com/clickhouse/clickhouse-jdbc/0.3.2/clickhouse-jdbc-0.3.2.jar    
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-connector-jdbc_2.12/1.14.4/flink-connector-jdbc_2.12-1.14.4.jar
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-csv/1.14.4/flink-csv-1.14.4.jar
+
+wget https://repo1.maven.org/maven2/org/apache/flink/flink-json/1.14.4/flink-json-1.14.4.jar
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-hadoop-2/2.8.3-10.0/flink-shaded-hadoop-2-2.8.3-10.0.jar
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-hadoop-2-uber/2.8.3-10.0/flink-shaded-hadoop-2-uber-2.8.3-10.0.jar
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-shaded-zookeeper-3/3.6.3-15.0/flink-shaded-zookeeper-3-3.6.3-15.0.jar
+wget https://repo1.maven.org/maven2/org/apache/flink/flink-sql-connector-elasticsearch7_2.12/1.14.4/flink-sql-connector-elasticsearch7_2.12-1.14.4.jar
+
+wget https://search.maven.org/remotecontent?filepath=com/ververica/flink-sql-connector-mysql-cdc/2.2.0/flink-sql-connector-mysql-cdc-2.2.0.jar
+wget https://search.maven.org/remotecontent?filepath=com/ververica/flink-sql-connector-oracle-cdc/2.2.0/flink-sql-connector-oracle-cdc-2.2.0.jar
+wget https://search.maven.org/remotecontent?filepath=org/apache/flink/flink-table_2.12/1.7.2/flink-table_2.12-1.7.2.jar
+wget https://search.maven.org/remotecontent?filepath=mysql/mysql-connector-java/8.0.29/mysql-connector-java-8.0.29.jar
+
+
+
+
+
+
+
+
+Flink如何实时分析Iceberg数据湖的CDC数据
+https://baijiahao.baidu.com/s?id=1692797472277581739&wfr=spider&for=pc
+HBase 是一个面向点查设计的一种数据库，是一种在线服务，它的行存的索引不适合分析任务。典型的数仓设计肯定是要列存的，这样压缩效率和查询效率才会高。
+第二，HBase 的集群维护成本比较高。最后，HBase 的数据是 HFile，不方便与大数据里数仓当中典型的 Parquet、Avro、Orc 等结合。
+
+
+
+大数据技术之Flink电商用户行为分析系统（用户画像）
+https://blog.csdn.net/IronmanJay/article/details/106891948
+电商用户行为分析指标（CEP，复杂事件处理，Complex Event Processing）
+1.统计分析（热门统计）
+利用用户的点击浏览行为，进行流量统计、近期热门商品统计等
+热搜同比增加多少、销量同比增加多少
+（1）点击、浏览
+（2）热搜商品、近期热门商品、分类热门商品、流量统计
+2.偏好统计
+利用用户的偏好行为，比如收藏、喜欢、评分等，进行用户画像分析，给出个性化的商品推荐列表
+（1）收藏、喜欢、评分、打标签
+（2）用户画像、推荐列表（结合特征工程和机器学习算法）
+3.风险控制
+利用用户的常规业务行为，比如登陆、下单、支付等，分析数据，对异常情况进行报警提示
+（1）下订单、支付、登陆
+（2）刷单监控、订单失效监控、恶意登陆（短时间内频繁登陆失效）
+用户数据在淘宝天池可以下载：包括点击、购买、收藏、喜欢
+
+
+Table API教程
+https://www.cnblogs.com/javazyh/p/13046739.html
+                      Single Row Input      Multiple Row Input
+                      单行输入              多行输入
+Single Row Output     ScalarFunction        AggregateFunction
+单行输出              (select/map)          (select/aggregate)
+Multiple Row Output   TableFunction         TableAggregateFunction
+多行输出              (joinLateral/flatmap) (flatAggregate)
+
+1.得到环境
+（1）batch
+  java：  org.apache.flink.api.java.ExecutionEnvironment
+          org.apache.flink.table.api.java.BatchTableEnvironment
+  scala： org.apache.flink.api.scala.ExecutionEnvironment
+          org.apache.flink.table.api.scala.BatchTableEnvironment
+（2）stream
+  java：  org.apache.flink.stream.api.environment.StreamExecutionEnvironment
+          org.apache.flink.table.api.java.StreamTableEnvironment
+  scala： org.apache.flink.streaming.api.scala.StreamTableEnvironment
+          org.apache.flink.table.api.scala.StreamTableEnvironment
+          
+1.得到一个表
+2.输出一个表
+3.查询一个表
+4.对列的操作
+5.窗口
+
+
+map与flatmap的区别
+1.map是1对1
+2.flatMap是1对多
+举例：
+有两箱鸡蛋，每箱5个，现在要把鸡蛋加工成煎蛋，然后分给学生
+map做的事情：    把2箱鸡蛋分别加工成煎蛋，还是放在原来得2箱，分给2组学生（1对1）
+flatmap做的事情：把两箱鸡蛋分别加工成煎蛋，然后放到一起（10个煎蛋）分给10个学生（1对多）
+
+
+
+Flink基础
+1.理论
+（1）流处理：每条流数据都经过你编写的代码进行处理
+（2）分散式流处理：保证流式数据相同的key到同一个计算实例上
+（3）有状态分散式流处理：状态会跟着流数据把相同的key分到同一个计算实例上，并会对状态进行叠加，当key非常多的时候，状态可能会非常大，所以需要一个状态后端来维护状态
+2.面临的挑战
+（1）状态容错
+ - 首先需要考虑到精确一次exactly-once的状态容错
+ - 简单场景的容错方法：有无界数据流从消息队列中输入进来，会把每个状态都保存下来，每个状态都对应一个保存的状态值。分散式场景下保证全域一致的快照（global consistent snapshot），并且保证不中断运算
+ - 检查点checkpoint：会周期性的产生
+ - 分散快照（Distributed Snapshots）算法（基于chaling-lanbort算法）：先由JobManager生成一个checkpoint barrier n，类似一条标记，
+当我的source遇到这个barrier的时候就会把当前状态保存到checkpoint n中，如果source是kafka，
+那么其实这次保存的状态，就是在kafka中消费的偏移量。jobmanager可以同时保存多个checkpoint，所以不会影响运算的速率
+（2）状态维护
+jvm heap状态后端：这种状态后端适用于内存比较小的情况，其实就是保存在内存中，只是在分散式快照的时候，需要序列化
+rockdb状态后端：状态可以维护在磁盘中，状态每次维护都需要序列化到磁盘中，在分散式的情况，不需要序列化
+（3）事件时间
+ - 时间时间（event-time）：数据流本身的时间
+ - 摄取时间（ingestion-time）：数据进入flink的时间
+ - 窗口处理时间（window-processing-time）：数据在flink中处理的时间
+ - watermarks水位线：水位线类似于flink中的一条标记，比如一条数据是4点的，如果设置了5分钟的watermark，那么这条数据就会等到5分钟之后才开始计算
+ - 乱序数据的影响：Flink以Event Time模式处理数据流的时候，它会根据数据里的时间戳来处理基于时间的算子
+ 由于网络、分布式等原因，会导致乱序数据的产生。乱序数据会让窗口计算不准确
+ watermark = 当前最大的时间戳 - 延迟时间。如果watermark >= 窗口的结束时间，这个窗口就会触发关闭操作
+ - 延迟时间的设置：根据数据的乱序的最大时间来确定延迟时间，延迟时间越大结果越准确，但计算结果出的越慢
+ - allowlateness：当watermark到的时候，窗口触发计算，输出统计结果，但窗口不会关闭，等到watermark涨到allowlateness的延迟才会关闭
+ - sideoutputlatedata：可以把数据放入到侧输出流中，但是放入到侧输出流中的数据不会再进行叠加了，需要之后再把数据拿出来处理
+（4）状态保存迁移
+savepoint保存点：其实就是一个手动产生的检查点
+在执行停止钱，比如升级flink，修改flink中的代码这种停止flink应用的时候，就需要产生一个保存点，最后通过保存点恢复数据，追上之前的数据
+inputData = getRuntimeContext.getState(new ValueStateDescriptor[String]("in1", classOf[String])))
+
+
+DataStream的基本转换
+https://www.cnblogs.com/javazyh/p/13040063.html
+
+
+flink双流合并
+https://blog.csdn.net/JavaBigData/article/details/115472449
+https://blog.csdn.net/m0_65025800/article/details/123959947?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1.pc_relevant_antiscanv2&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1.pc_relevant_antiscanv2&utm_relevant_index=2
+
+
+
+dependency中type默认为jar即引入一个特定的jar包。那么为什么还会有type为pom呢?当我们需要引入很多jar包的时候会导致pom.xml过大，
+我们可以想到的一种解决方案是定义一个父项目，但是父项目只有一个，也有可能导致父项目的pom.xml文件过大。
+这个时候我们引进来一个type为pom，意味着我们可以将所有的jar包打包成一个pom，然后我们依赖了pom，即可以下载下来所有依赖的jar包
+
+
+基于Flink+ClickHouse打造轻量级点击流实时数仓
+https://www.jianshu.com/p/bedead165403?utm_campaign=hugo
+1.点击流（click stream），就是指用户访问网站、App等Web前端时在后端留下的轨迹数据，也是流量分析（traffic analysis）和用户行为分析（user behavior analysis）的基础。
+点击流数据一般以访问日志和埋点日志的形式存储，其特点是量大、维度丰富。以我们一个中等体量的普通电商平台为例，每天产生200+GB、十亿条左右的原始日志，埋点事件100+个，涉及50+个维度。
+2.点击流数仓分层设计
+（点击流实时数仓的分层设计仍然可以借鉴传统数仓的方案，以扁平为上策，尽量减少数据传输中途的延迟）
+DIM层：维度层，MySQL镜像库，存储所有维度数据。
+ODS层：贴源层，原始数据由Flume直接进入Kafka的对应topic。
+DWD层：明细层，通过Flink将Kafka中数据进行必要的ETL与实时维度join操作，形成规范的明细数据，并写回Kafka以便下游与其他业务使用。再通过Flink将明细数据分别写入ClickHouse和Hive打成大宽表，前者作为查询与分析的核心，后者作为备份和数据质量保证（对数、补数等）。
+DWS层：服务层，部分指标通过Flink实时汇总至Redis，供大屏类业务使用。更多的指标则通过ClickHouse物化视图等机制周期性汇总，形成报表与页面热力图。特别地，部分明细数据也在此层开放，方便高级BI人员进行漏斗、留存、用户路径等灵活的ad-hoc查询，这些也是ClickHouse远超过其他OLAP引擎的强大之处。
+
+
+内存缓存（如Guava Cache、Caffeine等）与 Redis 结合，做二级缓存
+https://baijiahao.baidu.com/s?id=1683754847025183546&wfr=spider&for=pc
+（1）为什么要用多级缓存？
+如果只使用redis来做缓存我们会有大量的请求到redis，但是每次请求的数据都是一样的，假如这一部分数据就放在应用服务器本地，那么就省去了请求redis的网络开销，请求速度就会快很多。但是使用redis横向扩展很方便。
+如果只使用Caffeine来做本地缓存，我们的应用服务器的内存是有限，并且单独为了缓存去扩展应用服务器是非常不划算。所以，只使用本地缓存也是有很大局限性的。
+（2）将热点数据放本地缓存（一级缓存），将非热点数据放redis缓存（二级缓存）
+
+
+
+基于 Kafka 的实时数仓在搜索的实践应用
+https://www.jianshu.com/p/d7fc8dd925c3
+Kafka 的做法是提供消息队列，让生产者向队列的末尾添加数据，让多个消费者从队列里面依次读取数据然后自行处理。如果说之前连接的复杂度是 O(N^2)，那么现在复杂度降低到了 O(N)，扩展起来也方便多了
+
+
+30分钟掌握沧湖一体化：flink+hudi
+https://dafei1288.blog.csdn.net/article/details/120407407?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-120407407-blog-121339523.pc_relevant_aa&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7Edefault-1-120407407-blog-121339523.pc_relevant_aa&utm_relevant_index=2
+
+
+join两个流
+https://dafei1288.blog.csdn.net/article/details/98919202
+
+
+Flink CDC，实现Mysql数据增量备份到Clickhouse（对比传统摄取+下沉的方法）
+https://dafei1288.blog.csdn.net/article/details/118192917
+
+
+CDC 是变更数据捕获（Change Data Capture）技术的缩写，它可以将源数据库（Source）的增量变动记录，同步到一个或多个数据目的（Sink）。在同步过程中，还可以对数据进行一定的处理，例如分组（GROUP BY）、多表的关联（JOIN）等
+https://www.jianshu.com/p/616d6c5f23a0
+
+
+flink - 实时 - UV统计 - 布隆过滤器实现
+https://www.jianshu.com/p/49ee1fba6e14
+设计布隆过滤器的要点：
+1.选好点的hash函数
+2.不同userid经过hash到同一位上。不要那么稠密。
+即1亿的user，我们给出2亿的位，出现碰撞的概率就特别小。
+10B * 1亿，大概1GB, 用位来存，1bit * 1亿 大概10m，放redis放内存都是个很好的 选择。
+即使我们扩大位防止碰撞，放6亿，也是68M，可以放到redis中。有可能出现hash碰撞
+
+
+增量数据同步工具Debezium
+https://www.jianshu.com/p/61e604299b5e
+https://blog.csdn.net/lzufeng/article/details/81197821
+业务场景1：系统去Oracle
+业务场景2：不同BU（Business Unit）子系统之间协作
+业务场景3：OLAP、数仓
+
+
+Flink CDC介绍和原理概述
+https://blog.csdn.net/qq_32727095/article/details/120361815
+CDC主要分为基于查询和基于Binlog两种方式
+
+
+Apache Beam 架构
+https://blog.csdn.net/rlnLo2pNEfx9c/article/details/102559540?spm=1001.2101.3001.6650.5&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-5-102559540-blog-72519343.pc_relevant_paycolumn_v3&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7ERate-5-102559540-blog-72519343.pc_relevant_paycolumn_v3&utm_relevant_index=10
+Apache Beam 定位是做一个统一前后端的模型。其中，管道处理和逻辑处理是自己的，数据源和执行引擎则来自第三方
+优势：
+1.统一数据源、编程模型、数据引擎
+2.可移植性（Beam的jar包可以跨平台运行，包括Flink、Spark等）
+3.可扩展性（零部件都可以重塑）
+4.支持批处理和流处理
+5.支持多语言开发
+6.DAG（Directed acyclic graph，有向无环图）高度抽象（如果做一些去重、统计、分组等，开发人员不用再做 Map Reduce ，Beam 已经封装提供了相应的高级操作）
+
+
+DataPipeline数据清洗官网（界面设计的很不错；还有导入前后的，类似开关窗的对比）
+https://www.datapipeline.com/?utm_source=baidu&utm_campaign=%E5%88%9B%E6%84%8F&utm_content=%E5%88%9B%E6%84%8F&utm_term=%E5%88%9B%E6%84%8F&device=pc&e_matchtype=1&e_creative=33643204161&e_adposition=cl1&e_pagenum=1&e_keywordid=408682444414&bd_vid=8199843229788318342
+
+
+flinkCDC是实时的，datax和kettle是离线批处理

@@ -2,8 +2,36 @@
 We are seeking continuous, incremental improvements, not great breakthroughs
 我们在寻求持续的、渐进的改善，而不是重大的突破。
 
+You can look at the issue from many different angles
+你可以从很多不同的角度看这个问题。
+
+Feel free 随意
+
+durable storage 持久化存储
+
+periodic 周期性的
+robust 强大的
+fine-grained 细粒度的
 
 
+archive 归档
+
+explored 探索
+
+fundamentals 基本原理
+
+concepts 概念
+
+hands-on 动手
+
+If you want to try something more hands-on, try one of the tutorials. 
+如果您想尝试更多实践，请尝试其中一个教程
+
+Hands-On Training 操作培训
+
+walkthrough 演练
+
+suspicious  可疑的
 
 汉武帝：寇可往，吾亦可往
 

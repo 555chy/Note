@@ -1,3 +1,17 @@
-todesk 远程控制软件(window,linux)
-meld 比较工具
 
+secureCRT   远程连接工具
+sftp(Alt+P)可以将主机上的文件传给远端主机(ls列出远程主机文件，lls列出本地主机文件，put将本地文件上传到远程主机)
+
+
+向日葵      远程控制软件(window,linux)
+meld        比较工具
+
+开源应用防火墙
+（1）aihttps
+http://59.110.1.135/webpages/index.html?mod-rule
+（2）httpwaf
+https://github.com/httpwaf/
+
+
+SQL审查 Archery-SQL
+https://demo.archerydms.com/sqlworkflow/

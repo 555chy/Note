@@ -1,0 +1,5 @@
+
+命令行
+sqoop TOOL PROPERTY_ARGS SQOOP_ARGS [--EXTRA_ARGS]
+
+EXTRA_ARGS 用于专用连接器，以'-'与SQOOP_ARGS分开

@@ -1,0 +1,65 @@
+教程
+https://www.lidihuo.com/hadoop/hadoop-what-is-hive.html
+
+
+大数据的来源
+1.社交网站
+2.电子商务
+3.气象站
+4.电信公司
+5.股票市场
+
+大数据的3V
+1.Volume：总量大
+2.Variety：种类多
+3.Velocity：处理速度快
+
+大数据的3高
+1.高并发
+2.高可扩
+3.高性能
+
+解决方案
+1.存储：这种庞大的数据量，Hadoop使用HDFS（Hadoop分布式文件系统），该HDFS使用商用硬件形成集群并以分布式的方式存储数据
+2.处理：将Map Reduce范式应用于通过网络分发的数据
+3.分析：Pig，Hive可用于分析数据
+4.成本：Hadoop是开源的，因此成本不再是问题
+
+Hadoop三大组件
+https://baijiahao.baidu.com/s?id=1684665476419300396&wfr=spider&for=pc
+
+Hadoop是一个开源框架，允许使用简单的编程模型，在跨计算机集群的分布式环境中，存储和处理大量数据。它的设计是从单个服务器扩展到数千个机器，每个都提供本地计算和存储
+
+Hadoop最底层是Hadoop Distributed File System（HDFS），它存储Hadoop
+
+Hadoop三大组件
+1.分布式文件系统：HDFS —— 实现将文件分布式存储在很多的服务器上
+2.分布式运算编程框架：MapReduce —— 实现了多台机器的分布式并行运算
+3.分布式资源调度平台：YARN —— 帮助用户调度大量的mapreduce程序，并合理分配运算资源
+
+hive语法
+https://www.cnblogs.com/qingyunzong/p/8707885.html#_label0_0
+
+
+
+OLAP总结
+https://blog.csdn.net/u011110301/article/details/120492321?utm_medium=distribute.pc_relevant.none-task-blog-2~default~baidujs_title~default-0-120492321-blog-85219406.pc_relevant_default&spm=1001.2101.3001.4242.1&utm_relevant_index=3
+上面给出了常用的一些OLAP引擎，它们各自有各自的特点，我们将其分组：
+
+    Hive，Hawq，Impala - 基于SQL on Hadoop
+    Presto和Spark SQL类似 - 基于内存解析SQL生成执行计划
+    Kylin - 用空间换时间，预计算
+    Druid - 一个支持数据的实时摄入
+    ClickHouse - OLAP领域的Hbase，单表查询性能优势巨大
+    Greenpulm - OLAP领域的Postgresql
+
+如果你的场景是基于HDFS的离线计算任务，那么Hive，Hawq和Imapla就是你的调研目标；
+如果你的场景解决分布式查询问题，有一定的实时性要求，那么Presto和SparkSQL可能更符合你的期望；
+如果你的汇总维度比较固定，实时性要求较高，可以通过用户配置的维度+指标进行预计算，那么不妨尝试Kylin和Druid；
+ClickHouse则在单表查询性能上独领风骚，远超过其他的OLAP数据库；
+Greenpulm作为关系型数据库产品，性能可以随着集群的扩展线性增长，更加适合进行数据分析。
+
+就像美团在调研Kylin的报告中所说的：
+
+目前还没有一个OLAP系统能够满足各种场景的查询需求。
+其本质原因是，没有一个系统能同时在数据量、性能、和灵活性三个方面做到完美，每个系统在设计时都需要在这三者间做出取舍

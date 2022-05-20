@@ -1,3 +1,62 @@
+灰度测试简称，指在某项产品或应用正式发布前，选择特定人群试用，逐步扩大其试用者数量，以便及时发现和纠正其中的问题
+
+AfxMessageBox用来做弹窗
+
+MFC打开控制台日志
+FILE* stream;
+AllocConsole();
+SetConsoleTitle(_T("Debug Console"));
+freopen_s(&stream, "CONOUT$", "w+t", stdout);
+freopen_s(&stream, "CONIN$", "r+t", stdin);
+上面方法比较麻烦，其实只要在头文件中加一行宏定义，即可打开日志
+#pragma comment( linker, "/subsystem:console /entry:mainCRTStartup" )
+或
+#pragma comment( linker, "/subsystem:console /entry:WinMainCRTStartup" )
+
+
+
+（1）Linux下编译rapidjson
+1.把库拉到本地
+git clone https://github.com/Tencent/rapidjson.git
+2.进入代码根目录执行cmake
+如果想指定安装目录，用cmake参数：cmake -S . -B target_dir
+3.生成Makefile后，编译
+make && sudo make install
+4.安装完后，在MFC项目的CMake文件中增加如下
+SET(HEADER_RAPIDJSON_INC <include目录>)
+SET(THIRDPARTY_RAPIDJSON <代码目录>)
+INCLUDE_DIRECTORIES(${HEADER_RAPIDJSON_INC}) #添加头文件
+TARGET_LINK_LIBRARIES(my_proj ${OpenCV_LIBS} ${THIRDPARTY_RAPIDJSON}) #添加链接库
+（2）Windows下编译rapidjson
+
+
+rapidjson，对于json字符串 "{"key":null}"
+(1)rapidjson::Document.Parse(string.c_str())
+(2)obj.HasMember("key") => true
+(3)rapidjson::Value& value = bodyListArrayItem["key"];
+   value != NULL => true
+   value.IsString() => false
+   
+
+【std:string】
+(1)str::string在声明时，默认会被赋为空串(string没有NULL的概念)，string.empty()返回true
+(2)在printf的时候，可以使用string.c_str()将其转为char*
+(3)string的拼接不能直接使用加号，加号左右都只能是string类型才支持。对于char*，可以使用std::string(char*)转成string，其它类型使用std::to_string(obj)转为string后再拼接
+
+
+【注册表获取安装的软件和版本号】
+HKEY_LOCAL_MACHINE  SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall
+1.DisplayName是软件名，不带后缀
+2.DisplayVersion是版本号
+
+
+【VS将exe打包成msi】
+https://blog.csdn.net/xzqsr2011/article/details/103396447
+ERROR: … should be excluded because its source file … is under Windows System File Protection.
+原因：某些（被自动解析出来的）“受保护的” Assembly 不能被放入包。
+办法：将出错对象的 Exclude 属性设为 True，则可使其排除在包外。不用担心，这些组件往往是系统核心文件，出于安全考虑才被禁止入包，所以每个机器都有该文件。
+
+
 VC++调用DLL中的函数
 1.装载DLL
 HMODULE   LoadLibrary(
@@ -251,10 +310,17 @@ https://blog.csdn.net/tiandyoin/article/details/81937941
   N double
  _N bool
  PA 表示指针，后面的代号表明指针类型，如果相同类型的指针连续出现，以0代替，一个0表示一次重复
-4.
-5.
+4.参数表的第一项为该函数的返回值类型，其后依次为参数的数据类型
+5.指针标识在其所指数据类型前
+6.参数表后以"@Z"标识整个名字的结束，如果该函数无参数，则以"Z"标识结束
 (2)__cdecl调用，只是将参数表开始的标识，由@@YG改为@@YA
 (3)__fastcall调用，只是将参数表开始的标识符，由@@YG改为@@YI
+
+
+比如做亿赛通的时候
+1. CDGMenu.dll      typedef void(__stdcall* GetGlobalUserName)(char*);
+1. DynamicDll.dll   typedef void(*GetUserNameAndPsw)(char*, char*);
+
 
 
 函数调用约定
@@ -265,3 +331,34 @@ _stdcall    函数自动      右->左
 _fastcall   函数自动      依赖于编译器
 pascal      函数自动      左->右
 
+
+CentOS下C++开发环境搭建
+https://blog.csdn.net/wangxudongx/article/details/88104923
+```
+# git clone https://github.com/chxuan/vimplus.git ~/.vimplus
+// 建议国内用户使用gitee仓库，速度快
+// git clone https://gitee.com/chxuan/vimplus.git ~/.vimplus
+# cd ~/.vimplus
+# ./install.sh
+```
+```
+sudo yum install centos-release-scl
+sudo yum install scl-utils-build
+sudo yum install devtoolset-7-gcc*
+sudo yum install devtoolset-7-gdb*
+scl enable devtoolset-7 bash
+which gcc
+gcc --version
+```
+
+【sizeof _countof _tcslen的比较】
+1.sizeof得到的是数组的字节大小
+2._countof得到的数组中最大的字符的数量 注意这里不是数组实际字符的数量
+3._tcslen得到的是数组中实际的字符的数量
+
+
+【LoadLibrary和LoadLibraryEx的区别】
+若DLL不在调用方的同一目录下，可以用LoadLibrary(L"DLL绝对路径")加载。
+但若被调DLL内部又调用另外一个DLL，此时调用仍会失败。解决办法是用LoadLibraryEx：
+LoadLibraryEx(“DLL绝对路径”, NULL, LOAD_WITH_ALTERED_SEARCH_PATH);
+通过指定LOAD_WITH_ALTERED_SEARCH_PATH，让系统DLL搜索顺序从DLL所在目录开始

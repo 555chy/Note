@@ -1,3 +1,9 @@
+java向前端传值时，数字类型的精度损失
+使用fastjson的ToStringSerializer注解，让系统序列化时，保留相关精度
+@JsonSerialize(using = ToStringSerializer.class)
+private Long id;
+
+
 数据库信息 =====================================
 public class DbInfo {
     public static class Hana {

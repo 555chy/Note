@@ -1,8 +1,14 @@
+IF EXISTS(SELECT 1 FROM <table> WHERE <condition>)
+  UPDATE <table> SET <statement> WHERE <condition>
+ELSE
+  INSERT INTO <table> VALUES(...)  
+
+SELECT if(a and b, true, false)
+
 安装
 sudo yum install -y yum-utils
 sudo yum-config-manager --add-repo https://packages.clickhouse.com/rpm/clickhouse.repo
 sudo yum install -y clickhouse-server clickhouse-client
-
 
 本地连接
 sudo /etc/init.d/clickhouse-server start 或 systemctl start clickhouse-server
@@ -1386,6 +1392,17 @@ https://www.sohu.com/a/434152235_411876
 
 标签数据表：相对于 ElasticSearch 的用户画像表的存储结构，将标签存储做了一个行转列存储。每个标签对应一个 Bitmap 对象（存储了用户的唯一编号）
 
+列转行（假设有两列res1，res2）
+SELECT arrayJoin(arrayConcat(groupArray(res1), groupArray(res2))) AS newCol
+FROM(
+  WITH ( SELECT group(msg) FROM tb_xxx WHERE time < 111111111) AS ss
+  SELECT
+    arrayCount( x -> x like '%a%', ss ) AS res1,
+    arrayCount( x -> x like '%b%', ss) AS res2
+)
+
+
+
 -- bitmap
 Bitmap 对象有两种构建方式，一种是从聚合函数 groupBitmap 构建，另一种是从 Array 对象构建，也可以将 Bitmap 对象转换为 Array 对象。
 
@@ -1691,4 +1708,39 @@ P3定义
 Year.Major.Minor.patch
 Year.Major.1.patch 1 表示测试版，大于1表示稳定版本。有重大的更新和新特性主要在Minor为2的版本。
 
+clickhouse多路径存储
+https://blog.csdn.net/huzechen/article/details/112211054
 
+
+clickhouse可以为表或者列字段建立超时时间TTL，但是同样需要OPTIMIZE才会被删除
+启动或禁用TTL: SYSTEM START/STOP TTL MERGES
+CREATE TABLE example_table (
+	d DateTime,
+    a Int TTL d + INTERVAL 3 SECOND,
+    b Int TTL d + toIntervalSecond(3),
+    e Decimal(16, 2) TTL d + toIntervalSecond(3),
+    c String
+) ENGINE = MergeTree
+PARTITION BY toYYYYMM(d)
+ORDER BY d;
+
+
+多路径存储
+1.默认策略: MergeTree原本的存储策略，无需任何配置，所有分区会自动保存到config.xml配置中的path指定的路径
+2.JBOD(Just a Bunch Of Disks)策略: 这种策略适用于服务器挂载了多块磁盘，但是没有RAID的场景。JBOD(Just a Bunch Of Disks)，是一种Round-robin
+3.HOT/COLD策略: (冷热分离)这种策略适合服务器挂载了不同类型磁盘的场景，将存储磁盘分为HOT和COLD
+数据在写入MergeTree之初，首先会在HOT区域创建分区目录保存数据，当分区数据大小达到阈值时，数据会自动移动到COLD区域
+而在每个区域的内部也支持定义多个磁盘，所以在单个区域写入的过程，也能使用JBOD策略
+注意：由于华为云本身也是通过RAID的方式来提升速度的，所以该方法对云，即使加多块硬盘，也不奏效
+
+
+clickhouse漏斗图
+https://blog.csdn.net/qq_40694671/article/details/122755227?spm=1001.2101.3001.6650.7&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7Edefault-7.pc_relevant_default&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7EBlogCommendFromBaidu%7Edefault-7.pc_relevant_default&utm_relevant_index=13
+
+
+Tabix是clickhouse的网页端查询工具
+https://blog.csdn.net/chengyuqiang/article/details/107928216
+
+
+Data Mock + Kafka+Zookeeper + Flink + ElasticSearch + Kibana 实现实时数据分析系统
+https://blog.csdn.net/qq_27075943/article/details/108660924

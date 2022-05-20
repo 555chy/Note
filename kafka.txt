@@ -16,3 +16,51 @@ Kafka吞吐量高的原因
 4.分区分段：
 message是按topic分类存储的，topic中的数据又是按照一个一个的partition即分区存储到不同broker节点。每个partition对应了操作系统上的一个文件夹，partition实际上又是按照segment分段存储的。这也非常符合分布式系统分区分桶的设计思想。
 Kafka的message消息实际上是分布式存储在一个一个小的segment中的，每次文件操作也是直接操作的segment。为了进一步的查询优化，Kafka又默认为分段后的数据文件建立了索引文件，就是文件系统上的.index文件。这种分区分段+索引的设计，不仅提升了数据读取的效率，同时也提高了数据操作的并行度。
+
+
+【zookeeper】
+docker run -d --name zookeeper \
+-p 2181:2181 \
+-v /etc/localtime:/etc/localtime \
+--restart=always \
+-t wurstmeister/zookeeper
+
+【kafka】
+kafka配置KAFKA_LISTENERS和KAFKA_ADVERTISED_LISTENERS
+https://www.jianshu.com/p/26495e334613
+
+docker run -d --name kafka \
+-p 9092:9092 \
+--link zookeeper \
+-e KAFKA_BROKER_ID=0 \
+-e KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 \
+-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://192.168.1.13:9092 \
+-e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092 \
+-t wurstmeister/kafka
+
+-v /etc/localtime:/etc/localtime 容器时间与宿主机同步
+-e KAFKA_BROKER_ID=0 在kafka集群中，每个kafka都有一个BROKER_ID来区分自己
+-e KAFKA_ZOOKEEPER_CONNECT=0.0.0.0:2181/kafka 配置zookeeper管理kafka的路径10.9.44.11:2181/kafka
+-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092 把kafka的地址端口注册给zookeeper
+(填的是宿主机IP!!! 如果不是本机连接本机，127.0.0.1访问不了。会报错：Broker may not be available。因此这里的IP要改为kafka所在主机的实际IP)
+-e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092 配置kafka的监听端口
+
+创建生产者
+docker exec -it kafka /opt/kafka_2.13-2.8.1/bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
+创建消费者
+docker exec -it kafka /opt/kafka_2.13-2.8.1/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test --from-beginning
+查看端口占用，可以看到9092和2181都被docker代理着
+netstat -ntlp
+
+Flink连接不存在的地址
+10:55:02,261 INFO  org.apache.kafka.clients.NetworkClient                        - [Producer clientId=producer-4] Disconnecting from node -1 due to socket connection setup timeout. The timeout value is 8572 ms.
+10:55:02,264 WARN  org.apache.kafka.clients.NetworkClient                        - [Producer clientId=producer-4] Bootstrap broker 192.168.5.13:9092 (id: -1 rack: null) disconnected
+
+
+10:56:07,356 INFO  org.apache.kafka.clients.NetworkClient                        - [Producer clientId=producer-2] Node 0 disconnected.
+10:56:07,357 WARN  org.apache.kafka.clients.NetworkClient                        - [Producer clientId=producer-1] Connection to node 0 (/127.0.0.1:9092) could not be established. Broker may not be available.
+
+
+
+Debezium:数据实时采集从Postgresql到Kafka
+https://www.jianshu.com/p/a93fa3b8de3f

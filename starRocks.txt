@@ -302,7 +302,7 @@ mysql> SHOW PROC '/frontends'\G
 (1)安装mysql客户端(新版的改名为：mysql-community-client)
 rpm -ivh https://repo.mysql.com//mysql80-community-release-el7-5.noarch.rpm
 yum install -y mysql-client | yum install -y mysql-community-client
-(2)使用mysql客户端连接
+(2)使用mysql客户端连接（这里不能用localhost，只能是ip）
 mysql -h 127.0.0.1 -P9030 -uroot
 (3)查看FE状态
 mysql> SHOW PROC '/frontends'\G
@@ -323,17 +323,22 @@ SHOW PROC '/backends'\G
 注意：BE不会出现在jps进程中。如果在操作过程中遇到任何意外问题，都可以删除并重新创建storage目录，再从头开始操作。
 
 
-
-报错：actual backend local ip
+5.错误解决
+（1）报错：actual backend local ip
 即使FE配置了priority_networks，也可能因为一个网卡有多个地址（scope global secondary noprefixroute dynamic ens34），导致BE连不上FE
 1.使用 `ip a` 查看网卡名字
 2.一个网卡多IP是因为既设置了dynamic又指定了IP
 `vim /etc/sysconfig/network-scripts/<网卡名字>`，将BOOTPROTO由于dynamic改为none或static
 3.重启网络后生效 `service network restart`
 
-
-报错：this Replica exceeds max permissible delta: 5000 ms
+（2）报错：this Replica exceeds max permissible delta: 5000 ms
 fe的日志里出现这个错误，要么是网络延迟太厉害了，但更可能的是时钟不同步，需要ntp同步时间
+
+（3）报错：invalid cluster id
+这种问题是因为元数据不一致了，常见于第一次安装时没有加--helper参数，此场景需要将meta目录清空，然后通过--helper的方式重新加入集群
+rm -rf be/storage && mkdir be/storage
+rm -rf fe/meta && mkdir fe/meta
+如果每条命令被 两个与号(&&)分隔，如果中间有错误的命令，则不再执行后面的命令，没错则执行完毕为止
  
 
 shell命令里向mysql发送命令,可执行增删改查

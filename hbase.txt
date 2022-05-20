@@ -1,0 +1,77 @@
+探讨数据库的数据存储方式，其实就是探讨数据如何在磁盘上进行有效的组织。因为我们通常以如何高效读取和消费数据为目的，而不是数据存储本身
+
+Hbase语法
+https://www.cnblogs.com/guohu/p/13138868.html
+http://www.vue5.com/hbase/hbase_installation.html
+
+
+HBase对比关系型数据库管理系统（RDBMS）
+                HBase                 RDBMS
+数据类型    只有字符串/字节数组   具有丰富的数据类型
+数据操作    只支持增删改查        支持SQL语句
+存储模式    列式存储              行式存储
+数据更新    数据有多个版本        更新后覆盖
+扩展性      高                    低
+
+
+https://blog.csdn.net/qq_36290948/article/details/87096386
+1.行键(rowkey)
+row key是用来检索记录的主键。访问HBase Table中的行，只有3种方式：通过单个rowkey访问；通过rowkey的range；全表扫描
+rowkey可以是任意字符串(最大长度是64KB，实际应用中长度一般为10-100bytes)。在HBase内部，rowkey保存为字节数组。存储时，按照rowkey的字典序(byte order)排序存储
+设计key时，要充分利用排序存储这个特性，将经常一起读取的行存储放在一起
+2.列族(column family)
+HBase表中的每个列，都归属于某个列族。列族是表的schema的一部分（而不是列），必须在使用表之前定义。列名都是以列族为前缀
+3.单元(cell)
+HBase中通过row和column确定一个 存贮（zhu）单元，称为cell。cell中的数据是没有类型的，全部以字节码格式存储
+4.时间戳(timestamp)
+每个cell都保存着同一份数据的多个版本，版本通过时间戳来索引。
+时间戳可以由hbase在数据写入时自动赋值，精确到毫秒。也可以由用户显式赋值
+每个cell中，不同版本的数据按照时间倒序排序，即最新的数据放在最前面
+HBase提供了两种数据版本回收方式。一是保存数据的最后n个版本，二是保存最近一段时间内的版本（比如最近7天）
+5.HMaster
+（1）管理用户对表的增删改查等操作
+（2）管理regionServer的负载均衡，调整region的分布
+（3）region的分配和移除
+（4）处理RegionServer的故障转移
+（5）HMaster 节点发生故障时，由于客户端是直接与 RegionServer 交互的，且 Meta 表也是存在于 ZooKeeper 当中，整个集群的工作会继续正常运行，所以当 HMaster 发生故障时，集群仍然可以稳定运行
+6.RegionServer
+（1）响应用户的I/O请求，向HDFS文件系统中读写数据
+（2）内部管理了一系列HRegion对象
+（3）每个HRegion对应了Table中的一个Region，HRegion中由多个HStore组成
+（4）每个HStore对应了Table中的一个Column Family
+（5）HFile是HBase中的KeyValue数据的存储格式，是Hadoop的二进制格式的文件
+（6）HRegionServer中都包含一个WAL（write a head log）用来保存还未持久化存储的数据，用于用户数据还原
+（7）RegionServer用于切分过大的Region
+7.Region
+HBase使用rowkey将表水平切割成多个HRegion
+从HMaster的角度看，每个HRegion都记录了它的StartKey和EndKey。由于RowKey是排序的，因此client可以通过HMaster快速定位每个rowkey在哪个HRegion上
+HRegion由HMaster分配到相应的HRegionServer中，然后由HRegionServer负责HRegion的启动和管理，与Client的通信，负责数据的读取（使用HDFS）
+每个HRegionServer可以同时管理1000个左右的HRegion
+8.Zookeeper
+zookeeper是一个分布式协调服务
+zk管理着HMaster和HRegionServer的状态（avaliable/alive）
+zk提供了宕机时通知的功能，从而实现HMaster与RegionServer的故障转移（failover）机制
+在HMaster和HRegionServer连接到Zookeeper后，创建ephemeral(短暂的)节点，并使用heartbeat(心跳)机制来维持这个节点的存活状态
+HMaster监控zookeeper的ephemeral节点来监控RegionServer的存活状态（默认：/hbase/rs/*）
+备用HMaster监控zookeeper中的ephemeral节点，如果Active状态的HMaster宕机，备用状态的HMaster收到通知后就会切换为Active状态
+
+
+
+命名空间、表名、行、列都必须用引号引起来
+
+1.退出hbase shell客户端：quit
+2.名空间 hbase-namespace
+(1)创建名空间，同时指定属性
+create_namespace '<命名空间>'
+create_namespace '<命名空间>', {'<属性名>'=>'<属性值>'}
+(2)修改名空间属性
+#新增命名空间属性
+alter_namespace '<命名空间>', {METHOD => 'set', '<属性名>' => '<属性值>'}
+alter_namespace '<命名空间>', {METHOD => 'unset', NAME => '<属性名>'}
+(3)查看命名空间的描述信息
+describe_namespace '<命名空间>'
+(4)删除命名空间（namespacae必须为空，如果有表，不能被删除）
+drop_namespace '<命名空间>'
+3.表
+创建表时，如果没有指定命名空间，则默认创建在default命名空间下
+​在创建表时同时，必须至少指定一个列簇

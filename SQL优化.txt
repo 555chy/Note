@@ -1,0 +1,262 @@
+
+SQL格式化器
+https://www.dpriver.com/pp/sqlformat.htm
+
+CASE用法
+https://zhuanlan.zhihu.com/p/240717732
+
+case when的3种用法
+1.用于实现简单的等于判断
+CASE sex WHEN '1' THEN '男' WHEN '0' THEN '女' ELSE '其他'
+2.用于有条件的逻辑判断
+CASE WHEN sex = '1' THEN '男' WHEN sex = '0' THEN '女' ELSE '其他'
+3.判断字段为null的方法
+CASE WHEN age IS NULL THEN -1 ELSE age END
+
+
+
+逻辑运算规则
+1. a AND b OR c => a AND (b OR c)
+   如果 c = NOT a => a AND (b OR NOT a)
+   (1)当a=0时，NOT a = 1，等式 = a
+   (2)当a=1时，NOT a = 0，等式 = b
+   因此这种情况下，等式可以化简为 a AND b
+   
+
+
+伪列 rownum，就像表中的列一样，但是在表中并不存储。
+伪列只能查询，不能进行 增删改操作。它会根据返回的结果为每一条数据生成一个序列化的数字，rownum 是 oracle 特有的。伪劣最大的作用就是可以帮助oralce进行物理分页
+
+
+别名的合法性
+1.如果别名由方括号，引号包裹，不检查直接判为合法
+2.别名不得以数字，井号，美元符号打头。且如果其中含有sql操作符，则不合法
+
+
+如果想要在去重后选出的数据中选出前三条，则应该将distinct写在top的前面
+SELECT DISTINCT TOP 3 USERNAME,PASSWORD FROM USERS WHERE SEX='男'
+
+
+WITH TIES 必须与 Top , order by相结合使用的。如果有几个并列最后一名，会全部查出
+SELECT TOP 3 WITH TIES * FROM person
+SELECT TOP 3 * FROM person
+
+
+Oracle中的start with ... connect by...语句可以实现递归查询。
+Level表示当前查询的层级，从1开始。Oracle中使用||来拼接字符串
+create table TREETEST
+(
+    cityid   INTEGER not null, -- 行政区划代码
+    cityname VARCHAR2(100),    -- 行政区划名称
+    parname  VARCHAR2(100),    -- 上级行政区划代码
+    salary   NUMBER(19,6)      -- 
+    当前行政区划的平均薪水（随意填写的，不具有参考价值）
+)
+模拟层级树
+select Level , cityid, parname, cityname, salary,
+          lpad(' ', 8*(Level-1)) || cityname as parentName 
+  from treetest a 
+start with a.cityid=1 connect by a.parname = prior a.cityid;
+
+
+Oracle表和字段是有大小写区别的。oracle默认是大写，也会将你的SQL自动转为大写。加双引号的部分不会做自动转换
+
+
+join = inner join                   : 内连接，仅显示两个表中有联系的数据
+left join = left outer join         : 左链接，以左表为参照,显示所有数据，右表中没有则以null显示
+right join = right outer join       : 右链接，以右表为参照显示数据，左表中没有则以null显示
+full join = full outer join         : 全链接，只要其中某个表存在匹配，FULL JOIN 关键字就会返回行
+cross join(或不写，直接逗号分隔表名): 笛卡尔积，在使用CROSS JOIN时，不需要指定进行值匹配的连接列，查询只是返问两个表中所有可能的行组合
+
+Oracle外连接
+左外连接(左边的表不加限制)
+右外连接(右边的表不加限制)
+全外连接(左右两表都不加限制)
+
+在左连接和右连接时都会以一张A表为基础表，该表的内容会全部显示，然后加上A表和B表匹配的内容。 
+如果A表的数据在B表中没有记录。 那么在相关联的结果集行中列显示为空值（NULL）
+
+注意：left join时，只有条件两边都是id，总条数才会等于左表条数，否则不一定等于左表条数
+
+对于外连接， 也可以使用“(+) ”来表示。 关于使用（+）的一些注意事项：
+1.（+）操作符只能出现在WHERE子句中，并且不能与OUTER JOIN语法同时使用。
+2.当使用（+）操作符执行外连接时，如果在WHERE子句中包含有多个条件，则必须在所有条件中都包含（+）操作符。
+3.（+）操作符只适用于列，而不能用在表达式上。
+4.（+）操作符不能与OR和IN操作符一起使用。
+5.（+）操作符只能用于实现左外连接和右外连接，而不能用于实现完全外连接。
+6.用（+）来实现， 这个+号可以这样来理解： + 表示补充，即哪个表有加号，这个表就是匹配表。如果加号写在右表，左表就是全部显示，所以是左连接。
+
+(案例一)
+  select * from t_A a left outer join t_B b on a.id = b.id;
+  等价于
+  Select * from t_A a,t_B b where a.id=b.id(+);
+(案例二)
+  select * from t_A a right outer join t_B b on a.id = b.id;
+  等价于
+  Select * from t_A a,t_B b where a.id(+)=b.id;
+
+
+union     : 并集，然后去重
+union all : 并集
+intersect : 交集
+minus     : 集合相减
+
+
+行转列
+CREATE TABLE SalesList(
+  keHu     varchar2(20) -- 客户
+  shangPin varchar2(20) -- 商品名称
+  salesNum number(8)    -- 销售数量
+)
+-- 插入数据
+declare
+  -- 谈几个客户
+  cursor lr_kh is
+  select regexp_substr('张三、李四、王五、赵六', '[^、]+', 1, level) keHu from dual
+    connect by level <=4
+  -- 进点货
+  cursor lr_sp is
+  select regexp_substr('上衣、裤子、袜子、帽子', '[^、]+', 1, level) shangPin from dual
+    connect by level <=4
+begin
+  -- 循环插入
+  for v_kh in lr_kh loop
+    for v_sp in lr_sp loop
+      insert into SaleList
+      select v_kh.keHu, v_sp.shangPin, floor(dbms_random.value(10,50)) from dual
+    end loop;
+  end loop;
+  commit;
+end;
+行转列
+select *
+  from SalesList pivot(
+    max(saleNum) for shangPin in( --shangPin 即要转成列的字段
+      '上衣' as 上衣,             --max(salesNum) 此处必须为聚合函数，
+      '裤子' as 裤子,             --in () 对要转成列的每一个值指定一个列名
+      '袜子' as 袜子,
+      '帽子' as 帽子
+    )
+  )
+  where 1=1                       --这里可以写查询条件，没有可以直接不要where
+转动态列（不过转出来的是xml格式的数据）
+select *
+  from SaleList pivot xml(                    --pivot xml 以xml的形式输出
+    max(saleNum) for shangPin in(
+      select distinct shangPin from SaleList  --通过查询查出所有需要转列的值，即所有列
+    )
+  )
+  
+  
+SQL中的*有两种含义，一种表示所有列，一种表示乘法
+SELECT * FROM <table>
+SELECT * INTO <tmp_table> FROM <table> -- 生成临时表
+
+
+
+with引导语句，可以做成一张临时表
+
+
+
+SQLServer with(NOLOCK/READPAST/UPDLOCK)
+https://www.cnblogs.com/wancy86/archive/2013/02/22/nolock.html
+NOLOCK 和 READPAST 都是处理查询、插入、删除等操作时候，如何应对锁住的数据记录
+(非银行业务，可以容忍脏数据)
+(1)NOLOCK 可能把没有提交事务的数据也显示出来
+(2)READPAST 会把被锁住的行不显示出来
+(3)UPDLOCK 读取表时使用更新锁，而不使用共享锁，并将锁一直保留到语句或事务的结束。
+UPDLOCK 的优点是允许您读取数据（不阻塞其它事务）并在以后更新数据，同时确保自从上次读取数据后数据没有被更改。
+(4)不使用 NOLOCK 和 READPAST ，在 Select 操作时候则有可能报错误：事务(进程 ID **)与另一个进程被死锁在 锁 资源上，并且已被选作死锁牺牲品
+比如一张表中现有20条数据,其中有一个事务是在删除一条记录,但并没有commit
+此时在另外一个会话中进行COUNT(*),则:
+SELECT COUNT(*) FROM TB_TEST with(nolock)  ----结果为20
+SELECT COUNT(*) FROM TB_TEST with(readpast)----结果为19
+
+
+DUAL是Oracle中的一个伪表，利用这个伪表可以设置或查看序列
+CREATE TABLE "SYS"."DUAL"(
+  "DUMMY" VARCHAR2(1)
+) TABLESPACE "SYSTEM"
+DUMMY只有一个值，就是'X'. 该表不能被修改，否则会导致所有查询出错
+
+
+oracle中 !=、<>、^= 三个符号都表示 "不等于" 的意思（作用完全一致）
+但要注意，三个符号在表达 "不等于" 含义的同时，还隐含一个 "不为空 is not null" 的含义，所以null值会被先过滤掉，然后再判断"不等于"
+官方更推荐“<>”的写法，因为跨平台可移植性更强。
+
+
+如果名字不是字母、数字、下划线、美元符号、井号，则返回空
+#号打头是局部变量，##打头是全局变量
+$表示系统视图/伪表，如：sys.tab$、x$ktfbue、v$session。用来实时监控连接、资源、活动等
+
+
+sql server
+如果表中有identity属性列，可通过关键字identitycol或者$IDENTITY表示列
+SELECT IDENTITYCOL FROM t  
+SELECT $IDENTITY FROM t
+identity表示该字段的值会自动更新，不需要我们维护
+create table student1
+(
+ sid int primary key identity,
+ sname nchar(8) not null,
+ ssex nchar(1)
+)
+
+此列存储一个16字节的全球唯一标识符GUID，能确保同一数据库、不同库跨表的唯一性，
+此值借助网卡GUID来生成，如没有网卡，SQL Server会产生一个唯一的并且固定的值，
+这个可能和其他服务器产生的值重复
+如果表中有uniqueidentifier类型列(一个表中可以指定多个此类型的列)，同时列定义中有关键字ROWGUIDCOL,
+那么可以用ROWGUIDCOL表示列(一个表只能有一个rowguidcol属性的列)
+SELECT ROWGUIDCOL FROM t
+CREATE TABLE HumanResources.BuildingAccess
+(
+  BuildingEntryExitID uniqueidentifier ROWGUIDCOL DEFAULT NEWID(),
+  EmployeeID int NOT NULL,
+  AccessTime datetime NOT NULL,
+  DoorID int NOT NULL
+)
+
+
+别名有两种写法：Name Alias或Alias=Name
+
+
+减少嵌套层级时，通常有聚合的子查询不能砍。ForExtract表示如果子查询中只有可以外提的聚合函数（sum, max, min）时则不受影响，可以当作没有聚合函数。
+SELECT count(*) FROM (SELECT * FROM TABLE)
+
+Oracle中sys和system用户的区别
+https://www.cnblogs.com/chengeng/p/10232780.html
+
+
+oracle系统视图/伪表：
+如：sys.tab$、v$session
+
+Pascal SQL自动优化问题
+USqlConsts
+第一次
+1.IsValidAliasName 别名的判定规则。为什么方括号和引号包裹的，就直接合法
+  数据库约定特殊字符或保留字作为名字时，就必须加上方括号或者双引号
+2.IsValidObjectName #号打头，还有##打头是什么意思
+  #号打头的是局部临时表，##打头的是全局临时表
+3.GetTableAliasName 存在点号的时候，左侧是不是数据库名
+4.GetSqlOption为什么只复制了前100。如果只是提取那几个单词，取10就可以了
+5.TSelectSql.Rests是什么意思
+  最后剩余的不可识别的内容
+6.CheckCaseInSql最后一个单词如果是end的情况被忽略了，导致有可能漏补括号
+7.SubCutSpareStarMark只能删除后面1个空格（我改了代码，合并星号前后空格）
+HasFuncInSql只要(前面不是sql关键字，就是函数
+
+第二次
+SetFieldInfo为什么要跳过花括号
+SqlToUnions最多只能识别出2次集合操作符(union，intersect，minus) 如果sql中出现第三次非union的操作符，则无法识别
+SetTableInfo在setTableInfo中处理WITH的情况，如果n=0，必须改为长度+1
+HasAggFuncInXXX中的forExtra是什么意思????????????????????????????
+减少嵌套层级时，通常有聚合的子查询不能砍。
+ForExtract表示如果子查询中只有可以外提的聚合函数（sum, max, min）时则不受影响，可以当作没有聚合函数。
+
+USqlParse
+1.FoundFieldNameInSql 列名以@打头，指的是不是变量，为啥就直接返回false了
+变量不是字段，所以直接返回false
+2.FoundTableAliasInSql，为什么要弄3个列（分别是原始别名，加方括号的别名，加引号的别名）
+SetSelectSql这个要重点看，问题就出在这里
+OptimizeSelectSql里面有tables.remove
+JoinByUniqueFields和IsForeignKey改为返回true

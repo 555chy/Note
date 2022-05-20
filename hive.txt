@@ -1,3 +1,29 @@
+教程
+https://www.w3cschool.cn/hive_manual/hive_install.html
+https://www.lidihuo.com/hadoop/hadoop-hive-create-table.html
+
+hive是一个基于大数据技术的数据仓库（DataWareHouse）技术，主要是通过将用户书写的SQL语句翻译成 MapReduce 代码，然后发布任务给MR框架执行，完成SQL到MapReduce的转换
+它可以将结构化的数据文件映射为一张数据库表，并提供类SQL查询功能
+
+
+特点
+1.Hive是一个数据仓库
+2.Hive构建在HDFS上，可以存储海量数据
+3.Hive允许程序员使用SQL命令来完成数据的分布式计算，计算构建在yarn之上（Hive会将SQL转化为MR操作）
+优点
+1.简化了程序员的开发难度，写SQL即可，避免了去写mapreduce，减少开发人员的学习成本
+缺点
+1.延迟较高（MapReduce本身延迟，Hive SQL向MapReduce转化优化提交），适合做大数据离线处理（TB PB级别的数据，统计结果延迟1天产出）
+2.不适用于小数据计算和实时计算
+
+
+Hive的架构
+HDFS：用来存储hive仓库的数据文件
+Yarn：用来完成hive的HQL转化的MR程序的执行
+MetaStore：保存管理hive维护的元数据
+Hive：用来通过HQL的执行，转化为MapReduce程序的执行，从而对HDFS集群中的数据文件进行统计
+
+
 大数据框架(分区，分桶，分片)
 https://baijiahao.baidu.com/s?id=1702952809825057563&wfr=spider&for=pc
 1.分区是表的部分列的集合，可以为频繁使用的数据建立分区，这样查找分区中的数据时就不需要扫描全表，这对于提高查找效率很有帮助
@@ -5,3 +31,139 @@ https://baijiahao.baidu.com/s?id=1702952809825057563&wfr=spider&for=pc
 3.分区和分桶最大的区别就是分桶随机分割数据库，分区是非随机分割数据库
 4.主分片：用于解决数据水平扩展的问题，一个索引的所有数据是分布在所有主分片之上的（每个主分片承担一部分数据，主分片又分布在不同的节点上），一个索引的主分片数量只能在创建时指定，后期无法修改，除非对数据进行重新构建索引（reindex操作）。
 5.副本分片：用于解决数据高可用的问题，一个副本分片即一个主分片的拷贝，其数量可以动态调整，通过增加副本分片也可以实现提升系统读性能的作用。
+
+
+
+LLAP（Live Long and Process）它引入了分布式持久化查询服务，并结合经优化的数据缓存机制，可以快速启动查询计算作业，并避免无需的磁盘IO操作
+简而言之，LLAP是下一代分布式计算架构，它能够智能地将数据缓存到多台机器内存中，并允许所有客户端共享这些缓存的数据，同时保留了弹性伸缩能力
+Hive2 LLAP的引入，标志着Apache Hive进入内存计算的时代
+
+
+hive架构
+https://www.likecs.com/show-203571220.html
+                          |——> Hive + Pig ——> 报表中心
+Hadoop (HDFS+MapReduce) ——|——> Hbase      ——> 在线业务
+                          |——> Mahout     ——> BI
+                          
+                          
+Hive根据metastore的存储位置不同，分为三种安装模式：内嵌模式、本地模式、远程模式
+1.内嵌模式就是使用derdy存储元数据
+2.本地模式是讲hvie.metastore.local设置为true，也就是说metastore和hive客户端安装在同一台机器上
+3.远程模式指的是我们名前指定metastore安装的机器位置，而且可以指定多个，需要给定参数hive.metastore.uris并且hive.metastore.local的值必须设置为false
+
+
+【安装mysql】
+启动mysql      systemctl start mysqld.service
+查看初始密码   grep 'temporary password' /var/log/mysqld.log
+修改密码       ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '你自己的密码';
+               ALTER USER 'root'@'localhost' IDENTIFIED BY '你自己的密码' PASSWORD EXPIRE NEVER;
+运行远程访问   update mysql.user set host='%' where user='root';
+刷新权限       flush privileges;
+【安装hive】
+在hive的lib目录下，添加mysql-connector-java-8.0.29.jar
+
+
+【beeline命令】
+退出                             !quit
+展示所有数据库                   show databases;
+
+以键值对的形式向数据库分配属性   
+create database if not exists <dbname> WITH DBPROPERTIES ('creator'='<创建者>', 'date'='<日期>');
+
+检索数据库关联的信息             describe database extended demo;
+删除数据库                       drop database if exists <dbname>
+
+hive中不允许直接删除包含表的数据库，我们可以加Cascade递归删除
+drop database if exists <dbname> cascade
+
+
+hive有两类表：内部表、外部表
+CREATE [EXTERNAL] TABLE [IF NOT EXISTS] table_name
+[(col_name data_type [COMMENT col_comment], ...)]
+[COMMENT table_comment]
+[PARTITIONED BY (col_name data_type [COMMENT col_comment], ...)]
+[CLUSTERED BY (col_name, col_name, ...)
+[SORTED BY (col_name [ASC|DESC], ...)]
+INTO num_buckets BUCKETS]
+[ROW FORMAT row_format]
+[STORED AS file_format]
+[LOCATION hdfs_path]
+
+
+
+SerDe是Serialize/Deserilize的简称，目的是用于序列化和反序列化
+序列化是对象转换为字节序列的过程；反序列化是字节序列恢复为对象的过程
+对象的序列化主要有两种用途：对象的持久化，即把对象转换成字节序列后保存到文件中；对象数据的网络传送
+【SerDe的内置类型】
+Avro
+ORC
+RegEx
+Thrift
+Parquet
+CSV
+JsonSerDe
+
+
+不同数据类型，对空值的存储规则不同
+1.存储null值
+（1）int和string存储null时，存储的是\N
+（2）string类型存储""时，存储的是""；int类型存储""时，存储的是\N
+2.查询null值
+（1）int类型可以直接用 IS NULL 来判空
+（2）对于string类型，条件 IS NULL 查出来的是NULL；而条件 ='' 查出来的则是 ''
+null与任何值运算的结果都是null，可以使用is null、is not null函数指定在其值为null情况下的取值
+
+Hive中的Null在底层是以\N来存储的，而MySQL中的Null的底层就是Null
+（1）为了保证数据两端的一致性，在导出数据时采用`--input-null-string`和`--input-null-non-string`
+（2）导入数据时采用`--null-string`和`--null-non-string`
+
+也可以使用 ALTER TABLE <tableName> SET SERDEPROPERTIES('serialization.null.format'='') ROW FORMAT DELIMITED NULL DEFINED AS ''
+上面这个语句会把存储的''识别为null。之后用=''会返回false；但用is null则会返回true
+
+
+Hive中的复杂类型有3种
+
+
+开窗/窗口函数
+https://blog.csdn.net/weixin_40474941/article/details/123292696
+有这样一种场景，既想保留所有数据，又想按得到按某几列分组的聚合值，或者再对数据进行排序，要如何实现呢？
+这时候开窗函数就有了用武之地了，聚合函数在每组只保留一个值，而开窗函数可以在不减少原表行数的情况下，实现分组和排序的功能
+0.语法
+<窗口函数> over (partition by <用于分组的列名> order by <用于排序的列名> [desc] <倒序排列>)
+表结构
+create table demo_windows {
+  class int,      --班级
+  name string,    --名字
+  score int,      --分数
+  subject string, --学科
+}
+1.排位函数
+（1）rank         相等的值排名相同，但若有相等的值，则序号从1到n不连续。如果2个人都排在第3名，则没有第4名
+（2）dense_rank   相等的值排名相同，但序号从1到n连续。如果有2个人都排在第3名，则第5个人排在第4名（dense，稠密的）
+（3）row_number   相等的值对应的排名不同，序号从1到n连续，可以理解为行号
+select *, 
+  rank()       over (partition by class order by score desc) as ranking,
+  dense_rank() over (partition by class order by score desc) as dense_rank,
+  row_number() over (partition by class order by score desc) as row_num
+from test.demo_windows
+2.聚合函数
+sum, count, max, min, avg等。聚合函数作为窗口函数，就是计算截止至目前，数据的累计值
+select *,
+  sum(score)   over (partition by class order by score desc) as current_sum,
+  avg(score)   over (partition by class order by score desc) as current_avg,
+  count(score) over (partition by class order by score desc) as current_count,
+  max(score)   over (partition by class order by score desc) as current_max,
+  min(score)   over (partition by class order by score desc) as current_min
+from test.demo_windows
+注意：根据order by排序时，值相同的数据会被一起算进去。也就是说，是截止到当前值，而不是当前行
+如果要实现逐行累计，需要添加 rows between unbounded preceding and current row，表明范围从第一行到当前行（unbounded: 无尽的；preceding: 在...前面）
+select *,
+  sum(score)   over (partition by class order by score desc rows between unbounded preceding and current row) as current_sum,
+  avg(score)   over (partition by class order by score desc rows between unbounded preceding and current row) as current_avg,
+  count(score) over (partition by class order by score desc rows between unbounded ) as current_count,
+  max(score)   over (partition by class order by score desc) as current_max,
+  min(score)   over (partition by class order by score desc) as current_min
+from test.demo_windows
+3.偏移函数
+4.分布函数
+

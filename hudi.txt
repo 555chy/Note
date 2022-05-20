@@ -1,0 +1,131 @@
+IT (Information Technology) 信息技术
+DT (Data Technology) 数据处理技术（马云称现在是DT时代）
+IT时代是以自我控制、自我管理为主，而DT时代，它是以服务大众、激发生产力为主的技术。这两者之间看起来似乎是一种技术的差异，但实际上是思想观念层面的差异。
+
+
+无休止加班的真正原因（吃苹果理论）
+https://blog.51cto.com/u_14299052/2932909
+
+
+ODS (Operational Data Store): 数据从源表拉过来，进行etl，比如mysql映射到hive，那么到了hive里面就是ods层
+DW  (Data Warehouse): 是数据仓库的主体，从ODS层中获得的数据按照主题建立各种数据模型
+DWD (Data Warehouse Detail): 数据明细层
+DWM (Data Warehouse Middle): 数据中间层
+DWS (Data Warehouse Service): 数据服务层
+
+
+IoT (Internet of things) 物联网
+ERP (Enterprise Resource Planning) 企业资源计划
+CRM (Customer Relationship Management) 客户关系管理
+OA (Office Automation) 办公自动化
+ETL (Extract-Transform-Load) 抽取、转换、加载
+MA (Marketing Automation) 营销自动化
+
+RDD (Resilient Distributed Datasets) 弹性分布式数据库
+DAG (Directed Acyclic Graph) 有向无环图
+ASF (Apache Software Foundation) 阿帕奇软件基金会
+HA (High Availability) 高可用性
+
+
+ORC (OptimizedRC File) 存储源自 RC (RecordColumnar File) 这种存储格式。RC是一种列式存储引擎
+
+
+Apache Hudi 在基于 HDFS 数据存储之上，提供了两种流原语：
+1.插入更新
+2.增量拉取
+
+
+LSM-Tree
+https://blog.csdn.net/u010454030/article/details/90414063
+LSM-Tree（Log Structured Merge Tree）是一种分层、有序、面向磁盘的数据结构，其核心思想是充分利用了磁盘批量的顺序写要比随机写性能高出很多。
+围绕这一原理进行设计和优化，以此让写性能达到最优，正如我们普通的Log的写入方式，这种结构的写入，全部都是以Append的模式追加，不存在删除和修改。
+当然有得就有舍，这种结构虽然大大提升了数据的写入能力，却是以牺牲部分读取性能为代价，
+故这种结构通常适合于写多读少的场景
+故LSM被设计来提供比传统B+树 或 ISAM 更好的写操作吞吐量，通过消去随机的本地更新操作来达到这个目标
+这里面最典型的例子就属Kafka了，把磁盘顺序写发挥到了极致，故而在大数据领域成为了互联网公司标配的分布式消息中间件
+
+
+LSM-Tree通过批量顺序写来换取高吞吐的写性能，这种特性在大数据领域得到了充分的体现，最直接的例子就是各种NoSQL在大数据领域的应用
+
+
+同样是面向磁盘存储的数据结构LSM-Tree相比B+树的区别
+1.LSM-Tree的设计思路是，将数据拆分为几百M大小的Segments，并是顺序写入
+2.B+Tree则是将数据拆分为固定大小的Block或Page, 一般是4KB大小，和磁盘一个扇区的大小对应，Page是读写的最小单位
+
+
+数据湖比较流行的三个开源软件：Delta Lake、Apache Hudi 和 Apache Iceberg
+
+Lambda架构：流批共存的场景
+
+批模型
+批模型就是使用MapReduce、Hive、Spark等典型的批计算引擎，以小时任务或者天任务的形式来做数据计算
+（1）延迟：小时级延迟或天级别延迟。在大数据架构里，延迟通常是定时任务间隔时间 + 一系列依赖任务的计算时间 + 数据平台最终可以展示结果的时间。数据量大，逻辑复杂的情况下，小时任务计算的数据通常真正延迟的时间是2-3小时
+（2）数据完整度：以处理时间为例，小时级别的任务，通常计算的原始数据已经包含了小时内的所有数据，所以得到的数据相对较完整。但如果业务需求是事件时间，这里涉及到终端的一些延迟上报机制，批处理就很难派上用场了
+（3）成本：只有在做任务计算时，才会占用资源，如果不做任务计算，可以将这部分批计算资源让给在线业务使用。
+但从另一个角度来说，成本是挺高的，比如原始数据做了一些增删改查，数据晚到的情况，那么批式任务是要全量重新计算的
+
+
+流模型
+流模型，典型的就是使用Flink来进行实时数据计算
+（1）延迟：很短，甚至是实时
+（2）数据完整度：较差。因为流式引擎不会等到所有数据到齐之后再开始计算，所以有一个watermark的概念，当数据时间小于watermark时，就会被丢弃，这样无法对数据完整度有一个绝对的保障。
+（3）成本：很高。因为流式任务是常驻的，并且对于多流join的场景，通常要借助内存或者数据库来做state的存储，不管是序列化开销，还是和外部组件交互产生的额外IO，在大数据量下都不容忽视
+
+
+增量模型
+针对批式和流式的优缺点，Uber提出了增量模型，相对批式来讲，更加实时；相对流式而言，更加经济
+增量模型，简单来讲，是以mini batch的形式来泡准实时任务。Hudi在增量模型中支持了两个最重要的特性
+（1）Upsert：这个主要是解决批式模型中，数据不能插入、更新的问题。有了这个特性，我们可以往Hive中写入增量数据，而不是每次进行完全的覆盖。
+            Hudi自身维护了key->file的映射，所以当upsert时很容易找到key对应的文件
+（2）Incremental Query：增量查询，减少计算的原始数据量。以Uber中司机和乘客的数据流join为例，每次抓取两条数据流中的增量数据进行批式的Join即可，相比流式数据，成本要降低几个数量级
+
+在增量模型中，Hudi提供了两种Table，分别是 Copy-On-Write 和 Merge-On-Read 两种
+1.Copy-On-Write
+对于Copy-On-Write Table，用户的 update 会重写数据所在的文件，所以是一个写放大很高，但读放大为0，适合写少读多的场景。
+对于这种Table，提供了两种查询
+（1）Snapshot Query：查询最近一次snapshot的数据，也就是最新的数据
+（2）Incrementable Query：用户指定一个commit time，然后Hudi会扫描文件中的记录，过滤出commit_time > 用户指定的commit time的记录
+
+2.Merge-On-Read
+Merge-On-Read Table整体的结构有点像LSM-Tree，用户的写入先写入到delta data中，这部分数据使用行存（Avro），这部分delta data可以手动merge到存量文件中，整理为parquet的列存结构
+对于这类Table，提供了三种查询
+（1）Snapshot Query：查询最近一次的snapshot的数据，也就是最新的数据。这里是一个行列数据混合的查询
+（2）Incrementable Query：用户需要指定一个commit time，然后Hudi会扫描文件中的记录，过滤出commit_time > 用户指定的commit time的记录。这里是一个行列数据混合的查询
+（3）Read Optimized Query：只查询存量数据，不查增量数据，因为使用的都是列式文件格式，所以效率比较高
+
+
+Hive做数仓必然是比较简单的，Hive本身对Table中的内容掌握度也是比较小的
+以仓储为例，Hive相当于只提供了一个仓库，但是没有利用仓库中的内容去做一些优化，大家只是把东西放到仓库里，但是仓库的东西一多，大家找东西就会比较乱，
+而新兴的数据湖框架，既提供了一个仓库的功能，同时还给仓库配上了标签信息、监控工具、智能运输等功能，即使仓库装的很满，用户也可以轻松根据标签定位到具体的货架
+
+
+图解数据湖是什么（形象深动）
+https://blog.51cto.com/u_14299052/2933055
+数据湖是一个集中化存储海量的，多个来源，多种类型数据的地方，并可以对数据进行快速加工，分析的平台，本质上是一套先进的企业数据架构
+数据湖的核心价值在于为企业提供了数据平台化运营机制。随着DT时代的到来，企业继续变革，需要利用信息化，数字化，新技术的利器形成平台化系统，赋能公司的人员和业务，快速应对条件。而这一切的数据基础，正是数据湖所能提供的
+（1）数据库核心是满足快速的增删改查，以应对联机事务，通常为小数据量高频读写
+     传统数据库要满足频繁、快速的读写需求，并不适合以读取大量数据为特征的分析业务
+（2）数据仓库，主要是为了数据分析用途，比如BI，出报表，经营分析等
+     数据仓库主要用于联机分析业务，通常为大数据量读取
+
+
+图解数据湖与数仓的区别（形象深动）
+https://zhuanlan.zhihu.com/p/338542603
+数据仓库中的数据都是经过处理的。而数据湖中的数据可靠性是较差的，这些数据可能是任意状态、形态的数据。
+数据仓库在数据写入之前就要定义好模式（schema），例如：我们会先建立模型、建立表结构，然后导入数据。我们可以把它称之为write-schema。而数据湖中的数据是没有模式的，直到有用户要访问数据、使用数据才会建立schema。我们可以把它称之为read-schema。
+数据仓库一般用于做批处理报告、BI、可视化。而数据湖主要用于机器学习、预测分析、数据探索和分析。
+
+
+实时交易型业务和联机分析型业务
+（1）结构化：SQL
+（2）半结构化：CSV、XML、JSON
+（3）非结构化：视频、音频、图像
+数据湖就像一个大水坑，把各类异构数据进行集中存储的架构
+（1）为什么不是数据河？因为要存储，而不是一江春水向东流
+（2）为什么不是数据池？因为要足够大，大数据太大，一池存不下
+（3）为什么不是数据海？因为企业的数据要有边界，可以流通和交换，但更注重隐私和安全，海到无边天作岸，那可不行
+
+
+flink+hudi实战
+https://blog.csdn.net/wudonglianga/article/details/123034634
+https://blog.csdn.net/weixin_44904816/article/details/120775712?spm=1001.2101.3001.6650.1&utm_medium=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1-120775712-blog-123034634.pc_relevant_antiscanv2&depth_1-utm_source=distribute.pc_relevant.none-task-blog-2%7Edefault%7ECTRLIST%7ERate-1-120775712-blog-123034634.pc_relevant_antiscanv2&utm_relevant_index=2

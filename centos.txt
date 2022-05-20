@@ -1,0 +1,16 @@
+journalctl（查询系统日志的工具）
+journalctl -xe                -x 是目录(catalog)的意思，在报错的信息下会，附加解决问题的网址    -e  pager-end 从末尾开始看
+journalctl -r                 -r reverse 从尾部看(推荐)
+journalctl _UID=0 -n 5        某用户的日志
+journalctl -u httpd.service   某个服务的日志
+journalctl --since "2020-01-01 20:00:00" --until "2020-02-01 20:15:00"    时间段的日志
+
+
+vim 显示当前行号  :nu
+vim 显示所有行号  :set nu
+
+nc命令进行通信
+yum install -y nc
+A <-> B 双向聊天
+A: nc -l -p 4444
+B: nc -nv localhost 4444

@@ -1,0 +1,146 @@
+pascal是一门语言，delphi是扩展了pascal的一个集成开发环境
+
+1.变量
+var关键字之后是一组变量名列表
+
+2.常量const
+
+3.资源串常量resourcestring
+
+4.自定义变量type
+type <结构名> = record <属性定义...> end
+with <自定义对象> do begin <对其属性赋值...> end
+
+5.函数
+procedure：无返回值
+function：有返回值
+
+对于嵌套函数，父函数在最上方定义的变量是公用的，且可以被子函数修改
+
+https://blog.csdn.net/weixin_42668972/article/details/104651302
+
+and 优先级大于 or
+
+转义符
+法1：#39 （#加ASSIC码即可）
+法2：CHR(39)
+法3：对于单引号而言，可以使用''''来“转义”啦（双单引号来表示，即单引号用来转义）
+
+33及以上，是可见字符
+
+#9 水平制表符
+#10 回车
+#13 换行
+
+#13是软回车，#10是硬回车
+在Windows中，换行符是软回车+硬回车，即#13#10
+在Unix/Linux等系统中，换行符是硬回车，即#10. 
+
+Chr(x) 求编号x对应的字符。例：Chr(65)=’A’ chr(97)=’a’ chr(48)=’0’，Chr(x) 求编号x对应的字符
+
+ord是求ASCII码的函数字符'A' 对应ASCII码为65 'a' 97 '0' 48
+
+函数 function SameText(const S1, S2: string): Boolean;
+功能 返回两个字符串是否相等
+说明 不区分大小写
+
+function CompareText(constS1,S2:string):Integer;
+CompareText比较字符串S1和S2，如果它们相等返回0。如果S1大于S2返回—个大于0的整数。如果S1小于S2，返回小于0的整数。此函数是大小写不区分
+
+函数 function QuotedStr(const S: string): string; $[SysUtils.pas
+功能 返回字符串S在pascal中的表现形式
+说明 单引号中的一个单引号将转成两个
+给字符串两边加单引号并返回。单引号" ' " 将被插入到字符串s的最前和最后。
+
+函数 function AnsiDequotedStr(const S: string; AQuote: Char): string; 
+功能 返回以字符AQuote为引号的表现形式原形（如果字符串两边有界定符则删除，一边有也删）
+说明 表现形式非法时则返回S
+
+函数 function AnsiUpperCase(const S: string): string; $[SysUtils.pas
+功能 返回字符串S的大写形式
+说明 ANSI(American National Standards Institute)美国国家标准协会;非小写的字符不变
+
+i:=Pos(ch,s);
+获取ch在s中的位置（从1开始计数），如果没有返回0
+i:=PosEx(ch,s, N);
+PosEx返回第N个子串，在字符串的位置。
+
+delete(s,pos,len);
+s：待删除的字符串
+pos：删除的起始位置（从1开始计数，包括该位置）
+len：待删除的长度
+
+s1:=Copy(s,pos,len);
+s：待复制的字符串
+pos：复制的起始位置（从1开始计数，包括该位置）
+len：待复制的长度
+相当于java的截取字符串长度
+
+insert(s1,s2,l)把s1插入s2的第l个位置
+
+
+function StringOfChar(Ch: Char; Count: Integer): string;
+function DupeString(const AText: string; ACount: Integer): string;
+说明:
+StringOfChar :填充Count个Ch字符到字符串中，返回填充后的字符串。
+DupeString   :填充ACount个AText字符串到字符串中，返回填充后的字符串。
+StringOfChar 是反复 "字符" 成 "字符串" 的函数;
+DupeString 是反复 "字符串" 成 "新字符串" 的函数;
+StringOfChar 来自 System 单元, 可以直接使用;
+DupeString 来自 StrUtils 单元, 使用时需要 uses StrUtils;
+
+
+函数 function Trim(const S: string): string; overload; $[SysUtils.pas
+函数 function Trim(const S: WideString): WideString; overload; $[SysUtils.pas
+功能 返回除去字符串S左右不可见字符
+说明 小于#32的字符看作不可见字符
+
+函数 function StringReplace(const S, OldPattern, NewPattern: string; Flags: TReplaceFlags): string; $[SysUtils.pas
+功能 返回替换后的字符串
+说明 rfReplaceAll为替换全部内容;rfIgnoreCase为忽略大小写
+参考 function SysUtils.AnsiUpperCase;function SysUtils.AnsiPos;function System.Copy
+
+函数 function StrToInt64(const S: string): Int64; $[SysUtils.pas
+功能 返回字符串S转换成六十四位整数
+说明 字符串非六十四位整数表达时将引起异常
+
+setLength(x, len)
+SetLength好比Realloc，如果空间变大，会复制前面的的内容，如果空间变小，删除后面的内容。增加是重新分配, 前面的内容会移动新的空间里面
+
+
+Pascal不区分大小写
+
+
+Free Pascal 的实现是把外层函数的栈帧地址作为第一个隐藏参数传入内层函数。
+譬如这样的函数：
+function IncOut(x : LongInt) : LongInt;
+function IncIn(y : LongInt) : LongInt;
+begin
+  exit(x+y);
+end;
+begin
+  exit(IncIn(1));
+end;
+编译后的结果像是这样的伪代码：
+function IncIn(pf : PFrameIncOut; y : LongInt) : LongInt;
+// type PFrameIncOut = ^TFrameIncOut
+// 此处 TFrameIncOut 为表示 IncOut 栈帧布局的虚构类型
+// TFrameXXX 不同于真实变量，数据成员的偏移可以为负
+begin
+   exit(pf^.x+y);
+end;
+function IncOut(x : LongInt) : LongInt;
+begin
+  exit(IncIn(@FRAME, 1));
+// 此处 FRAME 为指代 IncOut 栈帧的虚构变量，类型为上面的 TFrameIncOut
+// 所有形参和非 const 局部变量都是属于虚构变量 FRAME 的数据成员
+// @FRAME 在 x86 上的实现一般为 bp/ebp/rbp
+end;
+
+
+
+
+翻译思路：
+1.有些通过输入输出的测试，里面就能断定用途就不用深究了
+
+

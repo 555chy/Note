@@ -1,0 +1,155 @@
+1.覆盖写入(创建文件)：
+  echo "日志内容" > 文件
+2.追加写入：
+  echo "日志内容" >> 文件
+3.换行写入：
+  echo -e "abc\n123" >> 文件 
+
+
+查看状态
+docker inspect <id/name>
+查看进程
+docker top <id/name>
+查看端口
+docker port <id/name>
+查看状态（true/false）
+docker inspect --format '{{.Name}} {{.State.Running}}' <id/name>
+查看ip
+docker inspect --format='{{.NetworkSettings.IPAddress}}' <id/name>
+查看所有ip
+docker inspect --format='{{.Name}} - {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' $(docker ps -aq)
+
+（1）-P, --publish-all  将所有公开的端口发布到随机端口
+-P参数，会将容器内部所有监听的端口都映射为随机端口(`docker port mysql` 输出 3306/tcp -> 0.0.0.0:3306，表示将容器中的tcp端口3306，映射到宿主机)
+docker run -d --name hbase -P harisekhon/hbase
+（2）-h, --hostname  容器主机名
+
+修改容器配置
+docker container update --restart=always 容器名字
+
+
+Docker容器的重启策略如下
+（1）no，默认策略，在容器退出时不重启容器
+（2）on-failure，在容器非正常退出时（退出状态非0），才会重启容器
+（3）on-failure:3，在容器非正常退出时，重启容器，最多重启3次
+（4）always，在容器退出时，总是重启容器
+（5）unless-stopped，在容器退出时总是重启容器，但是不考虑在Docker守护进程启动时，就已经停止了的容器
+
+
+【mysql】
+docker run -itd --name mysql -p 3306:3306 -e MYSQL_ROOT_PASSWORD=123456 mysql
+1.修改mysql配置文件vim /etc/my.cnf，在文件末尾添加
+[mysql]
+default-character-set=utf8
+[mysqld]
+character-set-server=utf8
+lower_case_table_names=1
+2.创建用户并授权
+create user 'guest' identified by '123456'
+grant all privileges on *.* to 'guest'@'%' with grant option;
+
+
+【oracle】
+docker run -d --name oracle -p 1521:1521 registry.cn-hangzhou.aliyuncs.com/helowin/oracle_11g 
+
+
+【hbase】
+docker run -d --name hbase -p 2181:2181 -p 16010:16010 -p 16020:16020 -p 16030:16030 harisekhon/hbase
+早期搭建hbase需要先安装hadoop和zookeeper，再安装hbase。而现在docker可以直接安装hbase，并不需要hadoop
+2181是zookeeper的端口
+16010是WebUI界面暴露的端口
+使用`hbase shell`可以进入命令行
+echo -e "export HADOOP_HOME=/hadoop-3.2.3 \n export hadoop.home.dir=/hadoop-3.2.3 \n export PATH=$PATH:$HADOOP_HOME/bin:$HADOOP_HOME/sbin:$hadoop.home.dir/bin:$hadoop.home.dir/sbin" > ~/.bashrc
+
+【phoenix连接hbase】
+使用DBeaver连接时，采用Phoenix驱动，编辑驱动设置，URL模板改为：jdbc:phoenix:{host}[:{port}]:hbase
+在HBase的UI界面 http://192.168.1.13:16010/master-status UI模板末尾补的值（ZooKeeper Base Path : /hbase）
+
+【dbeaver指定jdk路径】
+java.lang.NoSuchMethodError: 'void sun.misc.Unsafe.monitorEnter(java.lang.Object)' 是JDK版本不匹配导致，改为8即可
+在DBeaver安装目录下找到dbeaver.ini文件，在末尾添加一行，改为你本机的jdk路径
+-vm C:\jdk1.8\bin
+
+
+docker --link容器互联
+–link可以通过容器名互相通信，容器间共享环境变量。
+–link主要用来解决两个容器通过ip地址连接时容器ip地址会变的问题
+docker run -itd --name mysql --restart=always -e MYSQL_ROOT_PASSWORD=123456 mysql
+docker run -dti --name tomcat --restart=always -p 8080:8080 --link mysql -v /webapps:/usr/local/tomcat/webapps tomcat
+tomcat和mysql建立link之后,在tomcat里可以直接ping通mysql的容器名
+在tomcat配置MySQL连接的文件中不需要再写入localhost或者ip地址,直接写入mysql容器名即可连接到mysql数据库
+
+
+【zookeeper】
+docker run -d --name zookeeper \
+-p 2181:2181 \
+-v /etc/localtime:/etc/localtime \
+--restart=always \
+-t wurstmeister/zookeeper
+
+
+【kafka】
+kafka配置KAFKA_LISTENERS和KAFKA_ADVERTISED_LISTENERS
+https://www.jianshu.com/p/26495e334613
+
+docker run -d --name kafka \
+-p 9092:9092 \
+--link zookeeper \
+-e KAFKA_BROKER_ID=0 \
+-e KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181 \
+-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://192.168.1.13:9092 \
+-e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092 \
+-t wurstmeister/kafka
+
+-v /etc/localtime:/etc/localtime 容器时间与宿主机同步
+-e KAFKA_BROKER_ID=0 在kafka集群中，每个kafka都有一个BROKER_ID来区分自己
+-e KAFKA_ZOOKEEPER_CONNECT=0.0.0.0:2181/kafka 配置zookeeper管理kafka的路径10.9.44.11:2181/kafka
+-e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://127.0.0.1:9092 把kafka的地址端口注册给zookeeper
+(填的是宿主机IP!!! 如果不是本机连接本机，127.0.0.1访问不了。会报错：Broker may not be available。因此这里的IP要改为kafka所在主机的实际IP)
+-e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092 配置kafka的监听端口
+
+创建生产者
+docker exec -it kafka /opt/kafka_2.13-2.8.1/bin/kafka-console-producer.sh --broker-list localhost:9092 --topic test
+创建消费者
+docker exec -it kafka /opt/kafka_2.13-2.8.1/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 --topic test --from-beginning
+查看端口占用，可以看到9092和2181都被docker代理着
+netstat -ntlp
+
+
+使用Dockerfile生成web应用的镜像，在docker容器中运行，测试时发现在外部客户端发起http请求后，cURL返回了错误，
+error buffer是：Empty reply from server。（在容器内部测一直都是正常的）说明是外部无法访问这个url。
+我排查了很多原因，终于找到是，程序运行的ip写成了app.run(host='127.0.0.1', port=13031)。
+改成app.run(host='0.0.0.0', port=13031)就可以正常访问了。
+0.0.0.0，localhost和127.0.0.1的区别
+在服务器中，0.0.0.0指的是本机上的所有IPV4地址，是真正表示“本网络中的本机”。 一般我们在服务端绑定端口的时候可以选择绑定到0.0.0.0，这样我的服务访问方就可以通过我的多个ip地址访问我的服务。
+在路由中，0.0.0.0表示的是默认路由，即当路由表中没有找到完全匹配的路由的时候所对应的路由。
+而127.0.0.1是本地回环地址中的一个，大多数windows和Linux电脑上都将localhost指向了127.0.0.1这个地址，相当于是本机地址。
+localhost是一个域名，可以用它来获取运行在本机上的网络服务。
+在大多数系统中，localhost被指向了IPV4的127.0.0.1和IPV6的::1
+
+
+【flink】
+https://nightlies.apache.org/flink/flink-docs-release-1.14/docs/deployment/resource-providers/standalone/docker/
+
+
+节点                    端口号       协议        使用                                 说明
+zookeeper               2181                     zkCli.sh -server zookeeper1:2181     客户端接入
+                        2888,3888                N/A                                  集群内部通信
+                        
+HDFS Namenode           9000         HDFS        hdfs dfs -ls hdfs://namenode1:9000   客户端接入
+                        50070        HTTP        hdfs://namenode1:50070/              集群监控
+                        
+HDFS SecondaryNamenode  50090        HTTP        hdfs://namenode1:50090/              secondary监控
+
+HDFS Datanode           50010                    N/A                                  客户端接入/其他节点接入
+                        50020                    N/A
+                        50075        HTTP        http://datanode1:50075/              节点监控
+                        
+HBase Master            16000                    hbase-client-1.x.x.jar               RegionServer接入
+                        16010        HTTP        http://namenode1:16010/              集群监控
+
+HBase RegionServer      16020                    N/A                                  客户端接入
+                        16030        HTTP        http://datanode1:16030               节点监控
+
+
+
